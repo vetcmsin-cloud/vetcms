@@ -31,7 +31,11 @@ export async function registerRoutes(
     const effectivePermissions = user.permissions || role?.permissions || [];
 
     const { password: _, ...safeUser } = user;
-    res.json({ ...safeUser, effectivePermissions });
+
+    req.session.save((err) => {
+      if (err) return res.status(500).json({ message: "Session save failed" });
+      res.json({ ...safeUser, effectivePermissions });
+    });
   });
 
   app.post("/api/auth/logout", (req, res) => {
