@@ -506,9 +506,10 @@ function ViewInvoiceDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { toast } = useToast();
   const canEdit = hasPermission("billing.edit", "billing.manage");
+  const isReceptionist = user?.role === "receptionist";
 
   const { data: fullInvoice, isLoading } = useQuery<InvoiceWithMeta>({
     queryKey: ["/api/invoices", invoice.id],
@@ -528,6 +529,21 @@ function ViewInvoiceDialog({
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices", invoice.id] });
       toast({ title: "Status updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const markPaidMutationView = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/invoices/${invoice.id}/mark-paid`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices", invoice.id] });
+      toast({ title: "Payment collected", description: "Invoice marked as paid." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -557,7 +573,7 @@ function ViewInvoiceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0" hideClose>
         <style>{getPrintStyles(clinicSettings?.printerType || "a4")}</style>
         <DialogHeader className="no-print p-6 pb-0">
           <DialogTitle>Invoice Details</DialogTitle>
@@ -590,7 +606,20 @@ function ViewInvoiceDialog({
                   </Select>
                 )}
                 {!canEdit && (
-                  <Badge variant={statusBadgeVariant(inv.status)}>{statusLabel(inv.status)}</Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={statusBadgeVariant(inv.status)}>{statusLabel(inv.status)}</Badge>
+                    {isReceptionist && (inv.status === "pending" || inv.status === "forwarded") && (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => markPaidMutationView.mutate()}
+                        disabled={markPaidMutationView.isPending}
+                        data-testid="button-receptionist-mark-paid"
+                      >
+                        {markPaidMutationView.isPending ? "Updating..." : "Mark as Paid"}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
               <Button variant="outline" onClick={() => window.print()} data-testid="button-print-invoice">
@@ -821,11 +850,12 @@ export default function AdminBilling() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [viewInvoice, setViewInvoice] = useState<InvoiceWithMeta | null>(null);
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const { toast } = useToast();
 
   const canCreate = hasPermission("billing.create", "billing.manage");
   const canEdit = hasPermission("billing.edit", "billing.manage");
+  const isReceptionist = user?.role === "receptionist";
 
   const { data: invoicesData, isLoading } = useQuery<InvoiceWithMeta[]>({ queryKey: ["/api/invoices"] });
   const { data: owners } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
@@ -833,7 +863,12 @@ export default function AdminBilling() {
 
   const markPaidMutation = useMutation({
     mutationFn: async (invoiceId: number) => {
-      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}`, { status: "paid" });
+      const endpoint = canEdit
+        ? `/api/invoices/${invoiceId}`
+        : `/api/invoices/${invoiceId}/mark-paid`;
+      const method = canEdit ? "PATCH" : "POST";
+      const body = canEdit ? { status: "paid" } : undefined;
+      const res = await apiRequest(method, endpoint, body);
       return res.json();
     },
     onSuccess: () => {
@@ -1021,7 +1056,7 @@ export default function AdminBilling() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            {canEdit && inv.status === "pending" && (
+                            {(canEdit || isReceptionist) && (inv.status === "pending" || inv.status === "forwarded") && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1098,7 +1133,7 @@ export default function AdminBilling() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 mt-3 justify-end">
-                      {canEdit && inv.status === "pending" && (
+                      {(canEdit || isReceptionist) && (inv.status === "pending" || inv.status === "forwarded") && (
                         <Button
                           size="sm"
                           variant="outline"

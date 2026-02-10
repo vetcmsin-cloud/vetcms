@@ -277,6 +277,23 @@ export async function registerRoutes(
     res.status(201).json({ ...invoice, items: createdItems, createdByName: creator?.name || "System" });
   });
 
+  app.post("/api/invoices/:id/mark-paid", requireAuth, requirePermission("billing.view"), async (req, res) => {
+    const invoiceId = parseInt(req.params.id);
+    const existing = await storage.getInvoice(invoiceId);
+    if (!existing) return res.status(404).json({ message: "Invoice not found" });
+
+    if (existing.status !== "pending" && existing.status !== "forwarded") {
+      return res.status(400).json({ message: "Only pending or forwarded invoices can be marked as paid" });
+    }
+
+    const updated = await storage.updateInvoice(invoiceId, { status: "paid" });
+    if (!updated) return res.status(404).json({ message: "Invoice not found" });
+
+    const items = await storage.getInvoiceItems(updated.id);
+    const creator = updated.createdBy ? await storage.getUser(updated.createdBy) : null;
+    res.json({ ...updated, items, createdByName: creator?.name || "System" });
+  });
+
   app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.edit"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
     const userId = (req.session as any).userId;
