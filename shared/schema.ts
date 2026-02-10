@@ -160,6 +160,7 @@ export const ALL_PERMISSIONS = [
   "roles.manage",
   "backup.export",
   "admin_dashboard.view",
+  "data.erase",
 ] as const;
 
 export type Permission = typeof ALL_PERMISSIONS[number];

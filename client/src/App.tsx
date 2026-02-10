@@ -23,6 +23,7 @@ import AdminFees from "@/pages/admin-fees";
 import AdminBilling from "@/pages/admin-billing";
 import AdminRoles from "@/pages/admin-roles";
 import AdminUserRights from "@/pages/admin-user-rights";
+import AdminData from "@/pages/admin-data";
 
 function Router() {
   const { hasPermission } = useAuth();
@@ -46,6 +47,7 @@ function Router() {
           <Route path="/admin/billing" component={AdminBilling} />
           <Route path="/admin/roles" component={AdminRoles} />
           <Route path="/admin/user-rights" component={AdminUserRights} />
+          <Route path="/admin/data" component={AdminData} />
         </>
       )}
       <Route component={NotFound} />

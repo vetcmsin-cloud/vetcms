@@ -70,6 +70,13 @@ export interface IStorage {
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   deleteInvoiceItem(id: number): Promise<void>;
   deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void>;
+
+  eraseAllMedicalRecords(): Promise<number>;
+  eraseAllAppointments(): Promise<number>;
+  eraseAllPets(): Promise<number>;
+  eraseAllOwners(): Promise<number>;
+  eraseAllInvoices(): Promise<number>;
+  eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -286,6 +293,70 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void> {
     await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+  }
+
+  async eraseAllMedicalRecords(): Promise<number> {
+    const existing = await db.select().from(medicalRecords);
+    await db.delete(medicalRecords);
+    return existing.length;
+  }
+
+  async eraseAllAppointments(): Promise<number> {
+    const existing = await db.select().from(appointments);
+    await db.delete(medicalRecords);
+    await db.delete(appointments);
+    return existing.length;
+  }
+
+  async eraseAllPets(): Promise<number> {
+    const existing = await db.select().from(pets);
+    await db.delete(medicalRecords);
+    await db.delete(appointments);
+    await db.delete(pets);
+    return existing.length;
+  }
+
+  async eraseAllOwners(): Promise<number> {
+    const existing = await db.select().from(owners);
+    await db.delete(medicalRecords);
+    await db.delete(appointments);
+    await db.delete(invoiceItems);
+    await db.delete(invoices);
+    await db.delete(pets);
+    await db.delete(owners);
+    return existing.length;
+  }
+
+  async eraseAllInvoices(): Promise<number> {
+    const existing = await db.select().from(invoices);
+    await db.delete(invoiceItems);
+    await db.delete(invoices);
+    return existing.length;
+  }
+
+  async eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number }> {
+    const [recs, apts, items, invs, allPets, allOwners] = await Promise.all([
+      db.select().from(medicalRecords),
+      db.select().from(appointments),
+      db.select().from(invoiceItems),
+      db.select().from(invoices),
+      db.select().from(pets),
+      db.select().from(owners),
+    ]);
+    await db.delete(medicalRecords);
+    await db.delete(appointments);
+    await db.delete(invoiceItems);
+    await db.delete(invoices);
+    await db.delete(pets);
+    await db.delete(owners);
+    return {
+      medicalRecords: recs.length,
+      appointments: apts.length,
+      invoiceItems: items.length,
+      invoices: invs.length,
+      pets: allPets.length,
+      owners: allOwners.length,
+    };
   }
 }
 

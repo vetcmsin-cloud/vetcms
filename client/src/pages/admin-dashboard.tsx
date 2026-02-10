@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   UserCog,
   Settings,
+  Trash2,
 } from "lucide-react";
 
 const adminCards = [
@@ -44,6 +45,13 @@ const adminCards = [
     icon: UserCog,
     url: "/admin/user-rights",
     testId: "card-user-rights",
+  },
+  {
+    title: "Data Management",
+    description: "View data counts and erase clinic data (super admin only)",
+    icon: Trash2,
+    url: "/admin/data",
+    testId: "card-data",
   },
 ];
 

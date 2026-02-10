@@ -257,6 +257,54 @@ export async function registerRoutes(
     res.json(backup);
   });
 
+  // Data Erasure (superadmin with data.erase permission only)
+  app.delete("/api/data/medical-records", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const count = await storage.eraseAllMedicalRecords();
+    res.json({ message: `Erased ${count} medical records`, count });
+  });
+
+  app.delete("/api/data/appointments", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const count = await storage.eraseAllAppointments();
+    res.json({ message: `Erased ${count} appointments`, count });
+  });
+
+  app.delete("/api/data/pets", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const count = await storage.eraseAllPets();
+    res.json({ message: `Erased all pets and related records`, count });
+  });
+
+  app.delete("/api/data/owners", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const count = await storage.eraseAllOwners();
+    res.json({ message: `Erased all owners and related data`, count });
+  });
+
+  app.delete("/api/data/invoices", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const count = await storage.eraseAllInvoices();
+    res.json({ message: `Erased ${count} invoices`, count });
+  });
+
+  app.delete("/api/data/all", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const result = await storage.eraseAllData();
+    res.json({ message: "All clinic data erased", ...result });
+  });
+
+  app.get("/api/data/counts", requireAuth, requirePermission("data.erase"), async (_req, res) => {
+    const [allOwners, allPets, allAppointments, allRecords, allInvoices] = await Promise.all([
+      storage.getOwners(),
+      storage.getPets(),
+      storage.getAppointments(),
+      storage.getMedicalRecords(),
+      storage.getInvoices(),
+    ]);
+    res.json({
+      owners: allOwners.length,
+      pets: allPets.length,
+      appointments: allAppointments.length,
+      medicalRecords: allRecords.length,
+      invoices: allInvoices.length,
+    });
+  });
+
   // All data routes below require authentication
   app.use("/api/owners" as string, requireAuth);
   app.use("/api/pets" as string, requireAuth);

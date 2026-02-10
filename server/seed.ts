@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { owners, pets, appointments, medicalRecords, users, roles, feeStructures } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { log } from "./index";
 import { hashPassword } from "./auth";
 
@@ -18,7 +19,7 @@ export async function seedDatabase() {
         "billing.view", "billing.create", "billing.edit", "billing.delete",
         "fee_structure.view", "fee_structure.manage",
         "user_management.view", "user_management.manage",
-        "roles.manage", "backup.export", "admin_dashboard.view",
+        "roles.manage", "backup.export", "admin_dashboard.view", "data.erase",
       ],
       isSystem: "true",
     });
@@ -69,10 +70,19 @@ export async function seedDatabase() {
 
   const existingUsers = await db.select().from(users);
   if (existingUsers.length === 0) {
-    log("Creating default admin user...", "seed");
-    const hashedPw = await hashPassword("admin123");
+    log("Creating default users...", "seed");
+
+    const hashedSuperPw = await hashPassword("Admin@9447770876#");
     await db.insert(users).values({
       name: "Super Admin",
+      email: "superadmin@petpointvet.in",
+      password: hashedSuperPw,
+      role: "superadmin",
+    });
+
+    const hashedPw = await hashPassword("admin123");
+    await db.insert(users).values({
+      name: "Admin",
       email: "admin@petpointvet.in",
       password: hashedPw,
       role: "superadmin",
@@ -92,6 +102,18 @@ export async function seedDatabase() {
       email: "rec@petpointvet.in",
       password: hashedRecPw,
       role: "receptionist",
+    });
+  }
+
+  const superAdminExists = await db.select().from(users).where(eq(users.email, "superadmin@petpointvet.in"));
+  if (superAdminExists.length === 0) {
+    log("Creating superadmin user...", "seed");
+    const hashedSuperPw = await hashPassword("Admin@9447770876#");
+    await db.insert(users).values({
+      name: "Super Admin",
+      email: "superadmin@petpointvet.in",
+      password: hashedSuperPw,
+      role: "superadmin",
     });
   }
 

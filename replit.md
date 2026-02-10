@@ -35,6 +35,7 @@ client/src/
 │   ├── admin-billing.tsx  # Billing & invoices
 │   ├── admin-roles.tsx    # Role management
 │   ├── admin-user-rights.tsx # User permissions management
+│   ├── admin-data.tsx     # Data management & erasure (superadmin only)
 │   └── not-found.tsx     # 404 page
 ├── hooks/
 │   ├── use-auth.ts       # Auth state management hook
@@ -57,6 +58,7 @@ shared/
 - **Three roles**: superadmin, doctor, receptionist
 - **Session-based auth**: express-session with PostgreSQL session store (connect-pg-simple)
 - **Default users** (seeded on first startup):
+  - superadmin@petpointvet.in / Admin@9447770876# (superadmin - master admin with data.erase)
   - admin@petpointvet.in / admin123 (superadmin)
   - varsha@petpointvet.in / doctor123 (doctor)
   - rec@petpointvet.in / reception123 (receptionist)
