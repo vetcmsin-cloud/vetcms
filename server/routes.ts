@@ -52,6 +52,21 @@ export async function registerRoutes(
     res.json({ url, filename: req.file.filename });
   });
 
+  app.post("/api/upload/patient-photo", requireAuth, requirePermission("patients.edit"), upload.single("file"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const url = `/uploads/${req.file.filename}`;
+    const petId = req.body.petId;
+    if (!petId || isNaN(parseInt(petId))) {
+      return res.status(400).json({ message: "Valid petId is required" });
+    }
+    const pet = await storage.getPet(parseInt(petId));
+    if (!pet) {
+      return res.status(404).json({ message: "Pet not found" });
+    }
+    await storage.updatePet(parseInt(petId), { imageUrl: url });
+    res.json({ url, filename: req.file.filename });
+  });
+
   app.delete("/api/upload/:filename", requireAuth, requirePermission("admin_dashboard.view"), (req, res) => {
     const filename = req.params.filename;
     if (filename.includes("..") || filename.includes("/")) {

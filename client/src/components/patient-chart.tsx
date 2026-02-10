@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { CameraCapture } from "@/components/camera-capture";
+import { FullscreenImage } from "@/components/fullscreen-image";
 import {
   CalendarDays,
   Pencil,
@@ -23,6 +25,7 @@ import {
   Save,
   Receipt,
   FolderOpen,
+  Camera,
 } from "lucide-react";
 import type { Pet, Owner, Appointment, MedicalRecord } from "@shared/schema";
 
@@ -385,8 +388,34 @@ interface PatientChartProps {
 
 export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBookAppointment }: PatientChartProps) {
   const [activeTab, setActiveTab] = useState("patient-info");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
 
   const owner = pet ? owners.find((o) => o.id === pet.ownerId) : undefined;
+
+  const handleCameraCapture = async (file: File) => {
+    if (!pet) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("petId", String(pet.id));
+      const res = await fetch("/api/upload/patient-photo", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      toast({ title: "Photo saved", description: `Profile photo updated for ${pet.name}.` });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (!pet) return null;
 
@@ -395,12 +424,28 @@ export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBoo
       <SheetContent className="sm:max-w-lg w-full p-0 flex flex-col overflow-hidden" data-testid="patient-chart-panel">
         <div className="flex flex-col flex-1 overflow-hidden">
           <div className="flex items-start gap-4 p-5 pb-3 border-b">
-            <Avatar className="w-14 h-14 shrink-0">
-              <AvatarImage src={pet.imageUrl || ""} alt={pet.name} />
-              <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
-                {pet.name.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative shrink-0">
+              <Avatar
+                className="w-14 h-14 cursor-pointer"
+                onClick={() => pet.imageUrl && setFullscreenOpen(true)}
+                data-testid="avatar-patient-chart"
+              >
+                <AvatarImage src={pet.imageUrl || ""} alt={pet.name} />
+                <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
+                  {pet.name.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              <Button
+                size="icon"
+                variant="secondary"
+                className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full"
+                onClick={() => setCameraOpen(true)}
+                disabled={uploading}
+                data-testid="button-camera-patient-chart"
+              >
+                <Camera className="w-3 h-3" />
+              </Button>
+            </div>
             <div className="flex flex-col gap-1 flex-1 min-w-0">
               <h2 className="text-lg font-bold" data-testid="text-chart-pet-name">{pet.name}</h2>
               <span className="text-sm text-muted-foreground" data-testid="text-chart-pet-info">
@@ -475,6 +520,17 @@ export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBoo
           </div>
         </div>
       </SheetContent>
+      <CameraCapture
+        open={cameraOpen}
+        onOpenChange={setCameraOpen}
+        onCapture={handleCameraCapture}
+      />
+      <FullscreenImage
+        src={pet.imageUrl || ""}
+        alt={pet.name}
+        open={fullscreenOpen}
+        onClose={() => setFullscreenOpen(false)}
+      />
     </Sheet>
   );
 }

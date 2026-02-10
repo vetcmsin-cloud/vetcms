@@ -25,7 +25,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PatientChart } from "@/components/patient-chart";
-import { Plus, Search, PawPrint, Weight, Calendar } from "lucide-react";
+import { CameraCapture } from "@/components/camera-capture";
+import { FullscreenImage } from "@/components/fullscreen-image";
+import { Plus, Search, PawPrint, Weight, Calendar, Camera } from "lucide-react";
 import type { Pet, Owner } from "@shared/schema";
 
 function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) {
@@ -33,6 +35,9 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
   const isOpen = open !== undefined ? open : internalOpen;
   const setIsOpen = onOpenChange || setInternalOpen;
   const { toast } = useToast();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [capturedFile, setCapturedFile] = useState<File | null>(null);
 
   const defaultForm = {
     name: "",
@@ -51,6 +56,13 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
     ownerAddress: "",
   };
   const [form, setForm] = useState(defaultForm);
+
+  const handleCameraCapture = (file: File) => {
+    setCapturedFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setPhotoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -74,13 +86,26 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
         ownerId: owner.id,
         imageUrl: form.imageUrl || undefined,
       });
-      return petRes.json();
+      const pet = await petRes.json();
+      if (capturedFile) {
+        const formData = new FormData();
+        formData.append("file", capturedFile);
+        formData.append("petId", String(pet.id));
+        await fetch("/api/upload/patient-photo", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+      }
+      return pet;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
       setIsOpen(false);
       setForm(defaultForm);
+      setPhotoPreview(null);
+      setCapturedFile(null);
       toast({ title: "Patient added", description: "New patient and owner have been registered successfully." });
     },
     onError: (err: Error) => {
@@ -105,6 +130,32 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
           <DialogTitle>Register New Patient</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 mt-2">
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Avatar className="w-20 h-20">
+                {photoPreview ? (
+                  <AvatarImage src={photoPreview} alt="Preview" />
+                ) : (
+                  <AvatarFallback className="bg-primary/10 text-primary text-2xl font-semibold">
+                    {form.name ? form.name.charAt(0).toUpperCase() : "?"}
+                  </AvatarFallback>
+                )}
+              </Avatar>
+              <Button
+                size="icon"
+                variant="secondary"
+                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full"
+                onClick={() => setCameraOpen(true)}
+                type="button"
+                data-testid="button-camera-add-pet"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {photoPreview ? "Photo captured" : "Take a photo"}
+            </p>
+          </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="pet-name">Pet Name</Label>
             <Input
@@ -269,12 +320,20 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
           </Button>
         </div>
       </DialogContent>
+      <CameraCapture
+        open={cameraOpen}
+        onOpenChange={setCameraOpen}
+        onCapture={handleCameraCapture}
+      />
     </Dialog>
   );
 }
 
 function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: Owner[]; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     name: pet.name,
     species: pet.species,
@@ -288,6 +347,13 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
     imageUrl: pet.imageUrl || "",
   });
 
+  const handleCameraCapture = (file: File) => {
+    setCapturedFile(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setPhotoPreview(e.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
   const mutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PATCH", `/api/pets/${pet.id}`, {
@@ -298,11 +364,24 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
         microchip: form.microchip || undefined,
         ownerId: parseInt(form.ownerId),
       });
-      return res.json();
+      const updated = await res.json();
+      if (capturedFile) {
+        const formData = new FormData();
+        formData.append("file", capturedFile);
+        formData.append("petId", String(pet.id));
+        await fetch("/api/upload/patient-photo", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+      }
+      return updated;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
       onOpenChange(false);
+      setPhotoPreview(null);
+      setCapturedFile(null);
       toast({ title: "Patient updated", description: "Patient information has been updated." });
     },
     onError: (err: Error) => {
@@ -317,6 +396,33 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
           <DialogTitle>Edit Patient</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 mt-2">
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Avatar className="w-20 h-20">
+                {photoPreview ? (
+                  <AvatarImage src={photoPreview} alt="Preview" />
+                ) : (
+                  <AvatarImage src={pet.imageUrl || ""} alt={pet.name} />
+                )}
+                <AvatarFallback className="bg-primary/10 text-primary text-2xl font-semibold">
+                  {pet.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <Button
+                size="icon"
+                variant="secondary"
+                className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full"
+                onClick={() => setCameraOpen(true)}
+                type="button"
+                data-testid="button-camera-edit-pet"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {photoPreview ? "New photo captured" : "Take a photo to update"}
+            </p>
+          </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="edit-pet-name">Pet Name</Label>
             <Input
@@ -432,6 +538,11 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
           </Button>
         </div>
       </DialogContent>
+      <CameraCapture
+        open={cameraOpen}
+        onOpenChange={setCameraOpen}
+        onCapture={handleCameraCapture}
+      />
     </Dialog>
   );
 }
@@ -556,6 +667,7 @@ export default function Patients() {
   const [editOpen, setEditOpen] = useState(false);
   const [bookPet, setBookPet] = useState<Pet | null>(null);
   const [bookOpen, setBookOpen] = useState(false);
+  const [fullscreenPet, setFullscreenPet] = useState<Pet | null>(null);
 
   const filteredPets = pets?.filter(
     (p) =>
@@ -633,7 +745,16 @@ export default function Patients() {
               >
                 <CardContent className="p-5">
                   <div className="flex items-start gap-3">
-                    <Avatar className="w-12 h-12">
+                    <Avatar
+                      className="w-12 h-12 cursor-pointer"
+                      onClick={(e) => {
+                        if (pet.imageUrl) {
+                          e.stopPropagation();
+                          setFullscreenPet(pet);
+                        }
+                      }}
+                      data-testid={`avatar-pet-${pet.id}`}
+                    >
                       <AvatarImage src={pet.imageUrl || ""} alt={pet.name} />
                       <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                         {pet.name.charAt(0)}
@@ -710,6 +831,13 @@ export default function Patients() {
           }}
         />
       )}
+
+      <FullscreenImage
+        src={fullscreenPet?.imageUrl || ""}
+        alt={fullscreenPet?.name || ""}
+        open={!!fullscreenPet}
+        onClose={() => setFullscreenPet(null)}
+      />
     </div>
   );
 }

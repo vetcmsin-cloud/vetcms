@@ -19,6 +19,8 @@ client/src/
 │   ├── ui/              # Shadcn UI components
 │   ├── app-sidebar.tsx   # Main navigation sidebar (permission-based)
 │   ├── patient-chart.tsx  # Patient chart panel (Sheet) with 5 tabs
+│   ├── camera-capture.tsx # Camera capture dialog for taking photos
+│   ├── fullscreen-image.tsx # Fullscreen image viewer overlay
 │   ├── theme-provider.tsx # Dark/light mode provider
 │   └── theme-toggle.tsx  # Theme toggle button
 ├── pages/
@@ -88,8 +90,8 @@ shared/
 
 ## Key Features
 1. **Dashboard**: Overview stats (patients, owners, appointments), upcoming appointments, recent patients
-2. **Patients**: Register, view, and search pets with species, breed, age, weight, color, microchip
-3. **Patient Chart**: Slide-in panel with 5 tabs (Patient Info, Owner, History, Documents, Medical Records)
+2. **Patients**: Register, view, and search pets with species, breed, age, weight, color, microchip. Camera capture for patient profile photos (works on tablet/phone/desktop). Clickable avatars for fullscreen photo view.
+3. **Patient Chart**: Slide-in panel with 5 tabs (Patient Info, Owner, History, Documents, Medical Records). Camera button on avatar to take/update pet photo. Clickable avatar for fullscreen view.
    - SOAP note form (Subjective, Objective, Assessment, Plan) in Medical Records tab
    - "Save Record" and "Save & Generate Invoice" buttons
    - "Save & Generate Invoice" creates a pending invoice with server-generated #PET-XXXX number
