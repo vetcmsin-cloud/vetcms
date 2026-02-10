@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -12,8 +14,11 @@ import {
   TrendingUp,
   Activity,
   CalendarCheck,
+  Stethoscope,
 } from "lucide-react";
 import type { Pet, Owner, Appointment } from "@shared/schema";
+import { PatientChart } from "@/components/patient-chart";
+import { useAuth } from "@/hooks/use-auth";
 
 function StatCard({
   title,
@@ -75,6 +80,10 @@ function statusColor(status: string) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
+
   const { data: pets, isLoading: petsLoading } = useQuery<Pet[]>({
     queryKey: ["/api/pets"],
   });
@@ -90,9 +99,18 @@ export default function Dashboard() {
   const upcomingAppointments =
     appointments
       ?.filter((a) => a.date >= todayStr && a.status === "scheduled")
-      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-      .slice(0, 5) || [];
+      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)) || [];
   const recentPets = pets?.slice(-5).reverse() || [];
+
+  const canConsult = user?.role === "doctor" || user?.role === "superadmin";
+
+  const handleConsult = (petId: number) => {
+    const pet = pets?.find((p) => p.id === petId);
+    if (pet) {
+      setSelectedPet(pet);
+      setChartOpen(true);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-dashboard">
@@ -187,9 +205,23 @@ export default function Dashboard() {
                           {owner?.firstName} {owner?.lastName} &middot; {apt.type}
                         </span>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-xs font-medium">{apt.time}</div>
-                        <div className="text-[11px] text-muted-foreground">{apt.date}</div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="text-right">
+                          <div className="text-xs font-medium">{apt.time}</div>
+                          <div className="text-[11px] text-muted-foreground">{apt.date}</div>
+                        </div>
+                        {canConsult && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="gap-1"
+                            onClick={() => handleConsult(apt.petId)}
+                            data-testid={`button-consult-${apt.id}`}
+                          >
+                            <Stethoscope className="w-3.5 h-3.5" />
+                            Consult
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
@@ -259,6 +291,14 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <PatientChart
+        pet={selectedPet}
+        open={chartOpen}
+        onOpenChange={setChartOpen}
+        owners={owners || []}
+        defaultTab="medical-records"
+      />
     </div>
   );
 }

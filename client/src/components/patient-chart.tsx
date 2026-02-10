@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -384,10 +384,18 @@ interface PatientChartProps {
   owners: Owner[];
   onEditPet?: (pet: Pet) => void;
   onBookAppointment?: (pet: Pet) => void;
+  defaultTab?: string;
 }
 
-export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBookAppointment }: PatientChartProps) {
-  const [activeTab, setActiveTab] = useState("patient-info");
+export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBookAppointment, defaultTab }: PatientChartProps) {
+  const [activeTab, setActiveTab] = useState(defaultTab || "patient-info");
+
+  useEffect(() => {
+    if (open) {
+      setActiveTab(defaultTab || "patient-info");
+    }
+  }, [open, defaultTab]);
+
   const [cameraOpen, setCameraOpen] = useState(false);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
