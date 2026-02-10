@@ -7,6 +7,7 @@ import {
   FileText,
   Stethoscope,
   Shield,
+  Settings,
   LogOut,
 } from "lucide-react";
 import {
@@ -27,15 +28,16 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 
 const mainNav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard, roles: ["superadmin", "doctor", "receptionist"] },
-  { title: "Patients", url: "/patients", icon: PawPrint, roles: ["superadmin", "doctor", "receptionist"] },
-  { title: "Owners", url: "/owners", icon: Users, roles: ["superadmin", "doctor", "receptionist"] },
-  { title: "Appointments", url: "/appointments", icon: CalendarDays, roles: ["superadmin", "doctor", "receptionist"] },
-  { title: "Medical Records", url: "/records", icon: FileText, roles: ["superadmin", "doctor"] },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, permissions: ["dashboard.view"] },
+  { title: "Patients", url: "/patients", icon: PawPrint, permissions: ["patients.view", "patients.manage"] },
+  { title: "Owners", url: "/owners", icon: Users, permissions: ["owners.view", "owners.manage"] },
+  { title: "Appointments", url: "/appointments", icon: CalendarDays, permissions: ["appointments.view", "appointments.manage"] },
+  { title: "Medical Records", url: "/records", icon: FileText, permissions: ["medical_records.view", "medical_records.manage"] },
 ];
 
 const adminNav = [
-  { title: "User Management", url: "/users", icon: Shield, roles: ["superadmin"] },
+  { title: "Admin Dashboard", url: "/admin", icon: Settings, permissions: ["admin_dashboard.view"] },
+  { title: "User Management", url: "/users", icon: Shield, permissions: ["user_management.view", "user_management.manage"] },
 ];
 
 function roleLabel(role: string) {
@@ -49,10 +51,10 @@ function roleLabel(role: string) {
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
 
-  const visibleMain = mainNav.filter((item) => user && item.roles.includes(user.role));
-  const visibleAdmin = adminNav.filter((item) => user && item.roles.includes(user.role));
+  const visibleMain = mainNav.filter((item) => user && hasPermission(...item.permissions));
+  const visibleAdmin = adminNav.filter((item) => user && hasPermission(...item.permissions));
 
   return (
     <Sidebar>
@@ -104,7 +106,10 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleAdmin.map((item) => {
-                  const isActive = location.startsWith(item.url);
+                  const isActive =
+                    item.url === "/admin"
+                      ? location === "/admin" || location.startsWith("/admin/")
+                      : location === item.url;
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton

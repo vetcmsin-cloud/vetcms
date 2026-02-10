@@ -1,9 +1,72 @@
 import { db } from "./db";
-import { owners, pets, appointments, medicalRecords, users } from "@shared/schema";
+import { owners, pets, appointments, medicalRecords, users, roles, feeStructures } from "@shared/schema";
 import { log } from "./index";
 import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
+  const existingRoles = await db.select().from(roles);
+  if (existingRoles.length === 0) {
+    log("Creating default roles...", "seed");
+    await db.insert(roles).values({
+      name: "superadmin",
+      description: "Full system access with all permissions",
+      permissions: [
+        "dashboard.view", "patients.view", "patients.create", "patients.edit", "patients.delete",
+        "owners.view", "owners.create", "owners.edit", "owners.delete",
+        "appointments.view", "appointments.create", "appointments.edit", "appointments.delete",
+        "medical_records.view", "medical_records.create", "medical_records.delete",
+        "billing.view", "billing.create", "billing.edit", "billing.delete",
+        "fee_structure.view", "fee_structure.manage",
+        "user_management.view", "user_management.manage",
+        "roles.manage", "backup.export", "admin_dashboard.view",
+      ],
+      isSystem: "true",
+    });
+    await db.insert(roles).values({
+      name: "doctor",
+      description: "Clinical access including medical records and appointments",
+      permissions: [
+        "dashboard.view", "patients.view", "patients.create", "patients.edit",
+        "owners.view", "owners.create", "owners.edit",
+        "appointments.view", "appointments.create", "appointments.edit",
+        "medical_records.view", "medical_records.create", "medical_records.delete",
+        "billing.view",
+      ],
+      isSystem: "true",
+    });
+    await db.insert(roles).values({
+      name: "receptionist",
+      description: "Front desk access for managing appointments and owners",
+      permissions: [
+        "dashboard.view", "patients.view", "patients.create", "patients.edit",
+        "owners.view", "owners.create", "owners.edit",
+        "appointments.view", "appointments.create", "appointments.edit",
+        "billing.view", "billing.create",
+      ],
+      isSystem: "true",
+    });
+  }
+
+  const existingFees = await db.select().from(feeStructures);
+  if (existingFees.length === 0) {
+    log("Creating sample fee structures...", "seed");
+    await db.insert(feeStructures).values([
+      { name: "General Consultation", category: "Consultation", amount: "500.00", description: "Standard veterinary consultation" },
+      { name: "Follow-up Visit", category: "Consultation", amount: "300.00", description: "Follow-up appointment after treatment" },
+      { name: "Emergency Consultation", category: "Consultation", amount: "1000.00", description: "After-hours emergency visit" },
+      { name: "Rabies Vaccination", category: "Vaccination", amount: "350.00", description: "Annual rabies vaccine" },
+      { name: "DHPP Vaccination", category: "Vaccination", amount: "600.00", description: "Distemper, Hepatitis, Parvo, Parainfluenza combo" },
+      { name: "Deworming", category: "Treatment", amount: "200.00", description: "Standard deworming treatment" },
+      { name: "Dental Cleaning", category: "Dental", amount: "2500.00", description: "Professional dental cleaning under sedation" },
+      { name: "X-Ray", category: "Diagnostics", amount: "1200.00", description: "Single X-ray image" },
+      { name: "Blood Test - Complete", category: "Diagnostics", amount: "800.00", description: "Complete blood count and chemistry panel" },
+      { name: "Spay/Neuter - Small", category: "Surgery", amount: "3500.00", description: "Spay or neuter for small breed" },
+      { name: "Spay/Neuter - Large", category: "Surgery", amount: "5000.00", description: "Spay or neuter for large breed" },
+      { name: "Grooming - Basic", category: "Grooming", amount: "800.00", description: "Bath, brush, nail trim" },
+      { name: "Grooming - Full", category: "Grooming", amount: "1500.00", description: "Full grooming with haircut and styling" },
+    ]);
+  }
+
   const existingUsers = await db.select().from(users);
   if (existingUsers.length === 0) {
     log("Creating default admin user...", "seed");

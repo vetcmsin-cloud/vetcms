@@ -1,8 +1,12 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertOwnerSchema, insertPetSchema, insertAppointmentSchema, insertMedicalRecordSchema, insertUserSchema } from "@shared/schema";
-import { hashPassword, comparePassword, requireAuth, requireAdmin, requireRole } from "./auth";
+import {
+  insertOwnerSchema, insertPetSchema, insertAppointmentSchema,
+  insertMedicalRecordSchema, insertUserSchema, insertRoleSchema,
+  insertFeeStructureSchema, insertInvoiceSchema, insertInvoiceItemSchema,
+} from "@shared/schema";
+import { hashPassword, comparePassword, requireAuth, requireAdmin, requireRole, requirePermission } from "./auth";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -11,7 +15,7 @@ export async function registerRoutes(
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body as { email: string; password: string };
     if (!email || !password) return res.status(400).json({ message: "Email and password are required" });
 
     const user = await storage.getUserByEmail(email);
@@ -23,8 +27,11 @@ export async function registerRoutes(
     (req.session as any).userId = user.id;
     (req.session as any).userRole = user.role;
 
+    const role = await storage.getRoleByName(user.role);
+    const effectivePermissions = user.permissions || role?.permissions || [];
+
     const { password: _, ...safeUser } = user;
-    res.json(safeUser);
+    res.json({ ...safeUser, effectivePermissions });
   });
 
   app.post("/api/auth/logout", (req, res) => {
@@ -39,18 +46,22 @@ export async function registerRoutes(
     if (!(req.session as any).userId) return res.status(401).json({ message: "Not authenticated" });
     const user = await storage.getUser((req.session as any).userId);
     if (!user) return res.status(401).json({ message: "User not found" });
+
+    const role = await storage.getRoleByName(user.role);
+    const effectivePermissions = user.permissions || role?.permissions || [];
+
     const { password: _, ...safeUser } = user;
-    res.json(safeUser);
+    res.json({ ...safeUser, effectivePermissions });
   });
 
-  // Users (admin only for management)
-  app.get("/api/users", requireAuth, requireAdmin, async (_req, res) => {
+  // Users (permission-based)
+  app.get("/api/users", requireAuth, requirePermission("user_management.view", "user_management.manage"), async (_req, res) => {
     const allUsers = await storage.getUsers();
     const safeUsers = allUsers.map(({ password: _, ...u }) => u);
     res.json(safeUsers);
   });
 
-  app.post("/api/users", requireAuth, requireAdmin, async (req, res) => {
+  app.post("/api/users", requireAuth, requirePermission("user_management.manage"), async (req, res) => {
     const parsed = insertUserSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
@@ -63,7 +74,7 @@ export async function registerRoutes(
     res.status(201).json(safeUser);
   });
 
-  app.patch("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.patch("/api/users/:id", requireAuth, requirePermission("user_management.manage"), async (req, res) => {
     const parsed = insertUserSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
@@ -78,7 +89,7 @@ export async function registerRoutes(
     res.json(safeUser);
   });
 
-  app.delete("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.delete("/api/users/:id", requireAuth, requirePermission("user_management.manage"), async (req, res) => {
     const user = await storage.getUser(parseInt(req.params.id));
     if (!user) return res.status(404).json({ message: "User not found" });
     if (user.role === "superadmin") return res.status(403).json({ message: "Cannot delete super admin" });
@@ -86,11 +97,171 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  // All routes below require authentication
+  // Roles (permission-based)
+  app.get("/api/roles", requireAuth, requirePermission("roles.manage"), async (_req, res) => {
+    const allRoles = await storage.getRoles();
+    res.json(allRoles);
+  });
+
+  app.post("/api/roles", requireAuth, requirePermission("roles.manage"), async (req, res) => {
+    const parsed = insertRoleSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const existing = await storage.getRoleByName(parsed.data.name);
+    if (existing) return res.status(409).json({ message: "Role name already exists" });
+
+    const role = await storage.createRole(parsed.data);
+    res.status(201).json(role);
+  });
+
+  app.patch("/api/roles/:id", requireAuth, requirePermission("roles.manage"), async (req, res) => {
+    const parsed = insertRoleSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const role = await storage.getRole(parseInt(req.params.id));
+    if (!role) return res.status(404).json({ message: "Role not found" });
+
+    const updated = await storage.updateRole(parseInt(req.params.id), parsed.data);
+    res.json(updated);
+  });
+
+  app.delete("/api/roles/:id", requireAuth, requirePermission("roles.manage"), async (req, res) => {
+    const role = await storage.getRole(parseInt(req.params.id));
+    if (!role) return res.status(404).json({ message: "Role not found" });
+    if (role.isSystem === "true") return res.status(403).json({ message: "Cannot delete system role" });
+    await storage.deleteRole(parseInt(req.params.id));
+    res.status(204).send();
+  });
+
+  // Fee Structures (permission-based)
+  app.get("/api/fee-structures", requireAuth, requirePermission("fee_structure.view", "fee_structure.manage", "billing.manage"), async (_req, res) => {
+    const fees = await storage.getFeeStructures();
+    res.json(fees);
+  });
+
+  app.post("/api/fee-structures", requireAuth, requirePermission("fee_structure.manage"), async (req, res) => {
+    const parsed = insertFeeStructureSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const fee = await storage.createFeeStructure(parsed.data);
+    res.status(201).json(fee);
+  });
+
+  app.patch("/api/fee-structures/:id", requireAuth, requirePermission("fee_structure.manage"), async (req, res) => {
+    const parsed = insertFeeStructureSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+    const updated = await storage.updateFeeStructure(parseInt(req.params.id), parsed.data);
+    if (!updated) return res.status(404).json({ message: "Fee not found" });
+    res.json(updated);
+  });
+
+  app.delete("/api/fee-structures/:id", requireAuth, requirePermission("fee_structure.manage"), async (req, res) => {
+    await storage.deleteFeeStructure(parseInt(req.params.id));
+    res.status(204).send();
+  });
+
+  // Invoices (permission-based)
+  app.get("/api/invoices", requireAuth, requirePermission("billing.view", "billing.manage"), async (_req, res) => {
+    const allInvoices = await storage.getInvoices();
+    res.json(allInvoices);
+  });
+
+  app.get("/api/invoices/:id", requireAuth, requirePermission("billing.view", "billing.manage"), async (req, res) => {
+    const invoice = await storage.getInvoice(parseInt(req.params.id));
+    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+    const items = await storage.getInvoiceItems(invoice.id);
+    res.json({ ...invoice, items });
+  });
+
+  app.post("/api/invoices", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+    const { items, ...invoiceData } = req.body as any;
+    const parsed = insertInvoiceSchema.safeParse(invoiceData);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const invoice = await storage.createInvoice(parsed.data);
+
+    if (items && Array.isArray(items)) {
+      for (const item of items) {
+        await storage.createInvoiceItem({
+          ...item,
+          invoiceId: invoice.id,
+        });
+      }
+    }
+
+    const createdItems = await storage.getInvoiceItems(invoice.id);
+    res.status(201).json({ ...invoice, items: createdItems });
+  });
+
+  app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+    const { items, ...invoiceData } = req.body as any;
+    const parsed = insertInvoiceSchema.partial().safeParse(invoiceData);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const updated = await storage.updateInvoice(parseInt(req.params.id), parsed.data);
+    if (!updated) return res.status(404).json({ message: "Invoice not found" });
+
+    if (items && Array.isArray(items)) {
+      await storage.deleteInvoiceItemsByInvoice(updated.id);
+      for (const item of items) {
+        await storage.createInvoiceItem({
+          ...item,
+          invoiceId: updated.id,
+        });
+      }
+    }
+
+    const updatedItems = await storage.getInvoiceItems(updated.id);
+    res.json({ ...updated, items: updatedItems });
+  });
+
+  app.delete("/api/invoices/:id", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+    await storage.deleteInvoice(parseInt(req.params.id));
+    res.status(204).send();
+  });
+
+  // Backup Export (permission-based)
+  app.get("/api/backup/export", requireAuth, requirePermission("backup.export"), async (_req, res) => {
+    const [allOwners, allPets, allAppointments, allRecords, allFees, allInvoices, allRoles] = await Promise.all([
+      storage.getOwners(),
+      storage.getPets(),
+      storage.getAppointments(),
+      storage.getMedicalRecords(),
+      storage.getFeeStructures(),
+      storage.getInvoices(),
+      storage.getRoles(),
+    ]);
+
+    const invoicesWithItems = await Promise.all(
+      allInvoices.map(async (inv) => ({
+        ...inv,
+        items: await storage.getInvoiceItems(inv.id),
+      }))
+    );
+
+    const backup = {
+      exportDate: new Date().toISOString(),
+      version: "1.0",
+      data: {
+        owners: allOwners,
+        pets: allPets,
+        appointments: allAppointments,
+        medicalRecords: allRecords,
+        feeStructures: allFees,
+        invoices: invoicesWithItems,
+        roles: allRoles,
+      },
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="petpoint-backup-${new Date().toISOString().split("T")[0]}.json"`);
+    res.json(backup);
+  });
+
+  // All data routes below require authentication
   app.use("/api/owners" as string, requireAuth);
   app.use("/api/pets" as string, requireAuth);
   app.use("/api/appointments" as string, requireAuth);
-  app.use("/api/medical-records" as string, requireRole("superadmin", "doctor"));
+  app.use("/api/medical-records" as string, requireAuth, requirePermission("medical_records.view", "medical_records.manage", "medical_records.create", "medical_records.delete"));
 
   // Owners
   app.get("/api/owners", async (_req, res) => {

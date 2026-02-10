@@ -64,3 +64,33 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+export function requirePermission(...permissions: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const userId = (req.session as any).userId;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(401).json({ message: "User not found" });
+
+      let effectivePerms: string[] = [];
+      if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
+        effectivePerms = user.permissions;
+      } else {
+        const role = await storage.getRoleByName(user.role);
+        effectivePerms = (role?.permissions as string[]) || [];
+      }
+
+      const hasPermission = permissions.some((p) => effectivePerms.includes(p));
+      if (!hasPermission) {
+        return res.status(403).json({ message: "Forbidden: Insufficient permissions" });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ message: "Permission check failed" });
+    }
+  };
+}

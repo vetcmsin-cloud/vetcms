@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
 
-type SafeUser = Omit<User, "password">;
+type SafeUser = Omit<User, "password"> & { effectivePermissions?: string[] };
 
 export function useAuth() {
   const { data: user, isLoading, error } = useQuery<SafeUser | null>({
@@ -41,11 +41,17 @@ export function useAuth() {
     },
   });
 
+  const hasPermission = (...permissions: string[]) => {
+    if (!user?.effectivePermissions) return false;
+    return permissions.some((p) => user.effectivePermissions!.includes(p));
+  };
+
   return {
     user: user ?? null,
     isLoading,
     isAuthenticated: !!user,
     isAdmin: user?.role === "superadmin",
+    hasPermission,
     login: loginMutation,
     logout: logoutMutation,
   };

@@ -4,7 +4,12 @@ import {
   type Appointment, type InsertAppointment,
   type MedicalRecord, type InsertMedicalRecord,
   type User, type InsertUser,
+  type Role, type InsertRole,
+  type FeeStructure, type InsertFeeStructure,
+  type Invoice, type InsertInvoice,
+  type InvoiceItem, type InsertInvoiceItem,
   owners, pets, appointments, medicalRecords, users,
+  roles, feeStructures, invoices, invoiceItems,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -41,6 +46,30 @@ export interface IStorage {
   getMedicalRecordsByPet(petId: number): Promise<MedicalRecord[]>;
   createMedicalRecord(record: InsertMedicalRecord): Promise<MedicalRecord>;
   deleteMedicalRecord(id: number): Promise<void>;
+
+  getRoles(): Promise<Role[]>;
+  getRole(id: number): Promise<Role | undefined>;
+  getRoleByName(name: string): Promise<Role | undefined>;
+  createRole(role: InsertRole): Promise<Role>;
+  updateRole(id: number, data: Partial<InsertRole>): Promise<Role | undefined>;
+  deleteRole(id: number): Promise<void>;
+
+  getFeeStructures(): Promise<FeeStructure[]>;
+  getFeeStructure(id: number): Promise<FeeStructure | undefined>;
+  createFeeStructure(fee: InsertFeeStructure): Promise<FeeStructure>;
+  updateFeeStructure(id: number, data: Partial<InsertFeeStructure>): Promise<FeeStructure | undefined>;
+  deleteFeeStructure(id: number): Promise<void>;
+
+  getInvoices(): Promise<Invoice[]>;
+  getInvoice(id: number): Promise<Invoice | undefined>;
+  createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined>;
+  deleteInvoice(id: number): Promise<void>;
+
+  getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]>;
+  createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
+  deleteInvoiceItem(id: number): Promise<void>;
+  deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -165,6 +194,98 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMedicalRecord(id: number): Promise<void> {
     await db.delete(medicalRecords).where(eq(medicalRecords.id, id));
+  }
+
+  async getRoles(): Promise<Role[]> {
+    return db.select().from(roles);
+  }
+
+  async getRole(id: number): Promise<Role | undefined> {
+    const [role] = await db.select().from(roles).where(eq(roles.id, id));
+    return role;
+  }
+
+  async getRoleByName(name: string): Promise<Role | undefined> {
+    const [role] = await db.select().from(roles).where(eq(roles.name, name));
+    return role;
+  }
+
+  async createRole(role: InsertRole): Promise<Role> {
+    const [created] = await db.insert(roles).values(role).returning();
+    return created;
+  }
+
+  async updateRole(id: number, data: Partial<InsertRole>): Promise<Role | undefined> {
+    const [updated] = await db.update(roles).set(data).where(eq(roles.id, id)).returning();
+    return updated;
+  }
+
+  async deleteRole(id: number): Promise<void> {
+    await db.delete(roles).where(eq(roles.id, id));
+  }
+
+  async getFeeStructures(): Promise<FeeStructure[]> {
+    return db.select().from(feeStructures);
+  }
+
+  async getFeeStructure(id: number): Promise<FeeStructure | undefined> {
+    const [fee] = await db.select().from(feeStructures).where(eq(feeStructures.id, id));
+    return fee;
+  }
+
+  async createFeeStructure(fee: InsertFeeStructure): Promise<FeeStructure> {
+    const [created] = await db.insert(feeStructures).values(fee).returning();
+    return created;
+  }
+
+  async updateFeeStructure(id: number, data: Partial<InsertFeeStructure>): Promise<FeeStructure | undefined> {
+    const [updated] = await db.update(feeStructures).set(data).where(eq(feeStructures.id, id)).returning();
+    return updated;
+  }
+
+  async deleteFeeStructure(id: number): Promise<void> {
+    await db.delete(feeStructures).where(eq(feeStructures.id, id));
+  }
+
+  async getInvoices(): Promise<Invoice[]> {
+    return db.select().from(invoices);
+  }
+
+  async getInvoice(id: number): Promise<Invoice | undefined> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, id));
+    return invoice;
+  }
+
+  async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
+    const [created] = await db.insert(invoices).values(invoice).returning();
+    return created;
+  }
+
+  async updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const [updated] = await db.update(invoices).set(data).where(eq(invoices.id, id)).returning();
+    return updated;
+  }
+
+  async deleteInvoice(id: number): Promise<void> {
+    await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
+    await db.delete(invoices).where(eq(invoices.id, id));
+  }
+
+  async getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]> {
+    return db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+  }
+
+  async createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem> {
+    const [created] = await db.insert(invoiceItems).values(item).returning();
+    return created;
+  }
+
+  async deleteInvoiceItem(id: number): Promise<void> {
+    await db.delete(invoiceItems).where(eq(invoiceItems.id, id));
+  }
+
+  async deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void> {
+    await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
   }
 }
 

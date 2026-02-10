@@ -17,18 +17,36 @@ import Appointments from "@/pages/appointments";
 import Records from "@/pages/records";
 import Login from "@/pages/login";
 import UserManagement from "@/pages/user-management";
+import AdminDashboard from "@/pages/admin-dashboard";
+import AdminBackup from "@/pages/admin-backup";
+import AdminFees from "@/pages/admin-fees";
+import AdminBilling from "@/pages/admin-billing";
+import AdminRoles from "@/pages/admin-roles";
+import AdminUserRights from "@/pages/admin-user-rights";
 
 function Router() {
-  const { user } = useAuth();
+  const { hasPermission } = useAuth();
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/patients" component={Patients} />
       <Route path="/owners" component={Owners} />
       <Route path="/appointments" component={Appointments} />
-      <Route path="/records" component={Records} />
-      {user?.role === "superadmin" && (
+      {hasPermission("medical_records.view", "medical_records.manage") && (
+        <Route path="/records" component={Records} />
+      )}
+      {hasPermission("user_management.view", "user_management.manage") && (
         <Route path="/users" component={UserManagement} />
+      )}
+      {hasPermission("admin_dashboard.view") && (
+        <>
+          <Route path="/admin" component={AdminDashboard} />
+          <Route path="/admin/backup" component={AdminBackup} />
+          <Route path="/admin/fees" component={AdminFees} />
+          <Route path="/admin/billing" component={AdminBilling} />
+          <Route path="/admin/roles" component={AdminRoles} />
+          <Route path="/admin/user-rights" component={AdminUserRights} />
+        </>
       )}
       <Route component={NotFound} />
     </Switch>

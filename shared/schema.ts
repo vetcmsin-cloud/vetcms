@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, decimal, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   role: text("role").notNull().default("receptionist"),
+  permissions: jsonb("permissions").$type<string[]>(),
 });
 
 export const owners = pgTable("owners", {
@@ -55,11 +56,60 @@ export const medicalRecords = pgTable("medical_records", {
   notes: text("notes"),
 });
 
+export const roles = pgTable("roles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  permissions: jsonb("permissions").notNull().$type<string[]>().default([]),
+  isSystem: text("is_system").notNull().default("false"),
+});
+
+export const feeStructures = pgTable("fee_structures", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  description: text("description"),
+  isActive: text("is_active").notNull().default("true"),
+});
+
+export const invoices = pgTable("invoices", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceNumber: text("invoice_number").notNull().unique(),
+  ownerId: integer("owner_id").notNull(),
+  petId: integer("pet_id"),
+  date: text("date").notNull(),
+  dueDate: text("due_date"),
+  status: text("status").notNull().default("draft"),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  tax: decimal("tax", { precision: 10, scale: 2 }).notNull().default("0"),
+  discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
+  clinicName: text("clinic_name").default("PetPoint Pro Veterinary Clinic"),
+  clinicAddress: text("clinic_address"),
+  clinicPhone: text("clinic_phone"),
+});
+
+export const invoiceItems = pgTable("invoice_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  invoiceId: integer("invoice_id").notNull(),
+  feeId: integer("fee_id"),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true as const });
 export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true as const });
 export const insertPetSchema = createInsertSchema(pets).omit({ id: true as const });
 export const insertAppointmentSchema = createInsertSchema(appointments).omit({ id: true as const });
 export const insertMedicalRecordSchema = createInsertSchema(medicalRecords).omit({ id: true as const });
+export const insertRoleSchema = createInsertSchema(roles).omit({ id: true as const });
+export const insertFeeStructureSchema = createInsertSchema(feeStructures).omit({ id: true as const });
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true as const });
+export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true as const });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -71,3 +121,43 @@ export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
 export type MedicalRecord = typeof medicalRecords.$inferSelect;
 export type InsertMedicalRecord = z.infer<typeof insertMedicalRecordSchema>;
+export type Role = typeof roles.$inferSelect;
+export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type FeeStructure = typeof feeStructures.$inferSelect;
+export type InsertFeeStructure = z.infer<typeof insertFeeStructureSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
+
+export const ALL_PERMISSIONS = [
+  "dashboard.view",
+  "patients.view",
+  "patients.create",
+  "patients.edit",
+  "patients.delete",
+  "owners.view",
+  "owners.create",
+  "owners.edit",
+  "owners.delete",
+  "appointments.view",
+  "appointments.create",
+  "appointments.edit",
+  "appointments.delete",
+  "medical_records.view",
+  "medical_records.create",
+  "medical_records.delete",
+  "billing.view",
+  "billing.create",
+  "billing.edit",
+  "billing.delete",
+  "fee_structure.view",
+  "fee_structure.manage",
+  "user_management.view",
+  "user_management.manage",
+  "roles.manage",
+  "backup.export",
+  "admin_dashboard.view",
+] as const;
+
+export type Permission = typeof ALL_PERMISSIONS[number];
