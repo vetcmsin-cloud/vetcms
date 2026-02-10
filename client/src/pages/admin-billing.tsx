@@ -34,6 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, X, Printer, Eye, Forward, Search } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import type { Owner, Pet, FeeStructure } from "@shared/schema";
 
 type InvoiceWithMeta = {
@@ -76,7 +77,7 @@ interface LineItem {
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return `\u20B9${num.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
@@ -111,6 +112,18 @@ function todayStr(): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function formatDateDisplay(dateStr: string): string {
+  try {
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  } catch {
+    return dateStr;
+  }
 }
 
 function CreateInvoiceDialog() {
@@ -373,7 +386,7 @@ function CreateInvoiceDialog() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="invoice-discount">Discount (₹)</Label>
+              <Label htmlFor="invoice-discount">Discount (\u20B9)</Label>
               <Input
                 id="invoice-discount"
                 type="number"
@@ -417,6 +430,14 @@ function CreateInvoiceDialog() {
 
 type ClinicSettingsMap = Record<string, string>;
 
+function getFontFamily(fontSetting: string) {
+  switch (fontSetting) {
+    case "serif": return "'Times New Roman', 'Georgia', serif";
+    case "mono": return "'Courier New', 'Consolas', monospace";
+    default: return "system-ui, -apple-system, sans-serif";
+  }
+}
+
 function getPrintStyles(printerType: string) {
   switch (printerType) {
     case "thermal_58mm":
@@ -425,9 +446,10 @@ function getPrintStyles(printerType: string) {
           @page { size: 58mm auto; margin: 2mm; }
           body { font-size: 9px !important; }
           .no-print { display: none !important; }
-          .invoice-container { padding: 2mm !important; border: none !important; }
+          .invoice-container { padding: 2mm !important; box-shadow: none !important; }
           .invoice-container h2 { font-size: 12px !important; }
           .invoice-container table { font-size: 9px !important; }
+          .invoice-qr { width: 60px !important; height: 60px !important; }
         }
       `;
     case "thermal_80mm":
@@ -436,9 +458,10 @@ function getPrintStyles(printerType: string) {
           @page { size: 80mm auto; margin: 3mm; }
           body { font-size: 10px !important; }
           .no-print { display: none !important; }
-          .invoice-container { padding: 3mm !important; border: none !important; }
+          .invoice-container { padding: 3mm !important; box-shadow: none !important; }
           .invoice-container h2 { font-size: 13px !important; }
           .invoice-container table { font-size: 10px !important; }
+          .invoice-qr { width: 80px !important; height: 80px !important; }
         }
       `;
     case "a5":
@@ -446,7 +469,7 @@ function getPrintStyles(printerType: string) {
         @media print {
           @page { size: A5; margin: 10mm; }
           .no-print { display: none !important; }
-          .invoice-container { border: none !important; }
+          .invoice-container { box-shadow: none !important; }
         }
       `;
     default:
@@ -454,10 +477,20 @@ function getPrintStyles(printerType: string) {
         @media print {
           @page { size: A4; margin: 15mm; }
           .no-print { display: none !important; }
-          .invoice-container { border: none !important; }
+          .invoice-container { box-shadow: none !important; }
         }
       `;
   }
+}
+
+function buildUpiUrl(upiId: string, payeeName: string, amount: string | number) {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  const params = new URLSearchParams();
+  params.set("pa", upiId);
+  params.set("pn", payeeName);
+  params.set("am", num.toFixed(2));
+  params.set("cu", "INR");
+  return `upi://pay?${params.toString()}`;
 }
 
 function ViewInvoiceDialog({
@@ -505,23 +538,40 @@ function ViewInvoiceDialog({
   const owner = owners.find((o) => o.id === inv.ownerId);
   const pet = inv.petId ? allPets.find((p) => p.id === inv.petId) : null;
 
+  const headerColor = clinicSettings?.invoiceHeaderColor || "#0f766e";
+  const headerTextColor = clinicSettings?.invoiceHeaderTextColor || "#ffffff";
+  const accentColor = clinicSettings?.invoiceAccentColor || "#0d9488";
+  const fontFamily = getFontFamily(clinicSettings?.invoiceFontFamily || "default");
+  const upiId = clinicSettings?.upiId || "";
+  const upiPayeeName = clinicSettings?.upiPayeeName || clinicSettings?.clinicName || "Clinic";
+  const clinicName = clinicSettings?.clinicName || "PetPoint Pro Veterinary Clinic";
+  const clinicAddress = clinicSettings?.clinicAddress || "";
+  const clinicPhone = clinicSettings?.clinicPhone || "";
+  const clinicEmail = clinicSettings?.clinicEmail || "";
+  const gstNumber = clinicSettings?.gstNumber || "";
+  const regNumber = clinicSettings?.registrationNumber || "";
+  const clinicLogoUrl = clinicSettings?.clinicLogoUrl || "";
+
+  const totalNum = parseFloat(String(inv.total)) || 0;
+  const upiUrl = upiId ? buildUpiUrl(upiId, upiPayeeName, totalNum) : "";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0">
         <style>{getPrintStyles(clinicSettings?.printerType || "a4")}</style>
-        <DialogHeader className="no-print">
+        <DialogHeader className="no-print p-6 pb-0">
           <DialogTitle>Invoice Details</DialogTitle>
           <DialogDescription>View and print invoice details.</DialogDescription>
         </DialogHeader>
         {isLoading ? (
-          <div className="flex flex-col gap-4 p-4">
+          <div className="flex flex-col gap-4 p-6">
             <Skeleton className="h-6 w-48" />
             <Skeleton className="h-4 w-64" />
             <Skeleton className="h-32 w-full" />
           </div>
         ) : (
-          <div className="flex flex-col gap-6">
-            <div className="flex items-center justify-between gap-2 no-print flex-wrap">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-2 no-print px-6 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
                 {canEdit && (
                   <Select
@@ -549,123 +599,216 @@ function ViewInvoiceDialog({
               </Button>
             </div>
 
-            <div className="border rounded-md p-6 invoice-container">
-              <div className="flex flex-col gap-1 mb-6 text-center">
-                <h2 className="text-xl font-bold" data-testid="text-clinic-name">
-                  {clinicSettings?.clinicName || "PetPoint Pro Veterinary Clinic"}
-                </h2>
-                {clinicSettings?.clinicAddress && (
-                  <p className="text-sm text-muted-foreground">{clinicSettings.clinicAddress}</p>
-                )}
-                {clinicSettings?.clinicPhone && (
-                  <p className="text-sm text-muted-foreground">Phone: {clinicSettings.clinicPhone}</p>
-                )}
-                {clinicSettings?.clinicEmail && (
-                  <p className="text-sm text-muted-foreground">Email: {clinicSettings.clinicEmail}</p>
-                )}
-                {clinicSettings?.gstNumber && (
-                  <p className="text-sm text-muted-foreground">GST: {clinicSettings.gstNumber}</p>
-                )}
-                {clinicSettings?.registrationNumber && (
-                  <p className="text-sm text-muted-foreground">Reg: {clinicSettings.registrationNumber}</p>
-                )}
-              </div>
-
-              <div className="border-t pt-4 flex justify-between gap-4 flex-wrap">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">INVOICE</span>
-                  <span className="font-semibold" data-testid="text-invoice-number">{inv.invoiceNumber}</span>
-                  <span className="text-sm text-muted-foreground" data-testid="text-invoice-date">Date: {inv.date}</span>
-                </div>
-                <div className="flex flex-col gap-1 text-right">
-                  <span className="text-xs text-muted-foreground">BILL TO</span>
-                  {owner && (
-                    <span className="font-semibold" data-testid="text-invoice-owner">
-                      {owner.firstName} {owner.lastName}
-                    </span>
-                  )}
-                  {owner?.phone && <span className="text-sm text-muted-foreground">{owner.phone}</span>}
-                  {owner?.email && <span className="text-sm text-muted-foreground">{owner.email}</span>}
-                  {pet && (
-                    <span className="text-sm text-muted-foreground" data-testid="text-invoice-pet">
-                      Pet: {pet.name} ({pet.species})
-                    </span>
-                  )}
+            <div
+              className="invoice-container mx-4 mb-4 rounded-md overflow-hidden"
+              style={{ fontFamily, border: `1px solid ${accentColor}20` }}
+              data-testid="invoice-container"
+            >
+              <div
+                className="p-6"
+                style={{ backgroundColor: headerColor, color: headerTextColor }}
+                data-testid="invoice-header"
+              >
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    {clinicLogoUrl && (
+                      <img
+                        src={clinicLogoUrl}
+                        alt="Clinic Logo"
+                        className="w-12 h-12 rounded-md object-contain bg-white/20 p-1"
+                        data-testid="img-clinic-logo"
+                      />
+                    )}
+                    <div>
+                      <h2 className="text-xl font-bold" data-testid="text-clinic-name">
+                        {clinicName}
+                      </h2>
+                      {clinicAddress && (
+                        <p className="text-sm opacity-85 mt-0.5">{clinicAddress}</p>
+                      )}
+                      <div className="flex flex-col gap-0.5 mt-1">
+                        {clinicPhone && <p className="text-xs opacity-75">{clinicPhone}</p>}
+                        {clinicEmail && <p className="text-xs opacity-75">{clinicEmail}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold tracking-wide opacity-90">INVOICE</p>
+                    {gstNumber && <p className="text-xs opacity-70 mt-1">GST: {gstNumber}</p>}
+                    {regNumber && <p className="text-xs opacity-70">Reg: {regNumber}</p>}
+                  </div>
                 </div>
               </div>
 
-              <Table className="mt-6">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Unit Price</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inv.items?.map((item, idx) => (
-                    <TableRow key={item.id || idx} data-testid={`row-invoice-item-${idx}`}>
-                      <TableCell data-testid={`text-item-desc-${idx}`}>{item.description}</TableCell>
-                      <TableCell className="text-right">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.unitPrice)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(item.total)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {(!inv.items || inv.items.length === 0) && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
-                        No line items
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-
-              <div className="flex flex-col items-end gap-1 mt-4 pt-4 border-t">
-                <div className="flex justify-between gap-8 w-full max-w-xs">
-                  <span className="text-sm text-muted-foreground">Subtotal</span>
-                  <span className="text-sm" data-testid="text-print-subtotal">{formatCurrency(inv.subtotal)}</span>
+              <div className="p-6">
+                <div className="flex justify-between gap-6 mb-6 flex-wrap">
+                  <div className="flex flex-col gap-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bill To</p>
+                    {owner && (
+                      <p className="font-semibold text-base" data-testid="text-invoice-owner">
+                        {owner.firstName} {owner.lastName}
+                      </p>
+                    )}
+                    {owner?.address && <p className="text-sm text-muted-foreground">{owner.address}</p>}
+                    {owner?.phone && <p className="text-sm text-muted-foreground">{owner.phone}</p>}
+                    {owner?.email && <p className="text-sm text-muted-foreground">{owner.email}</p>}
+                    {pet && (
+                      <p className="text-sm mt-1" data-testid="text-invoice-pet">
+                        <span className="text-muted-foreground">Patient:</span>{" "}
+                        <span className="font-medium">{pet.name}</span>{" "}
+                        <span className="text-muted-foreground">({pet.species}{pet.breed ? ` - ${pet.breed}` : ""})</span>
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 text-right">
+                    <div className="flex flex-col gap-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</p>
+                        <p className="font-medium" data-testid="text-invoice-date">{formatDateDisplay(inv.date)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Number</p>
+                        <p className="font-semibold text-base" data-testid="text-invoice-number" style={{ color: headerColor }}>
+                          {inv.invoiceNumber}
+                        </p>
+                      </div>
+                      {inv.dueDate && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Date</p>
+                          <p className="font-medium">{formatDateDisplay(inv.dueDate)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                {parseFloat(String(inv.tax)) > 0 && (
-                  <div className="flex justify-between gap-8 w-full max-w-xs">
-                    <span className="text-sm text-muted-foreground">Tax</span>
-                    <span className="text-sm">{formatCurrency(inv.tax)}</span>
+
+                <div className="rounded-md overflow-hidden border mb-6">
+                  <table className="w-full text-sm" data-testid="table-invoice-items">
+                    <thead>
+                      <tr style={{ backgroundColor: accentColor, color: headerTextColor }}>
+                        <th className="text-left p-3 font-semibold">Description of Services</th>
+                        <th className="text-center p-3 font-semibold w-16">Qty</th>
+                        <th className="text-right p-3 font-semibold w-24">Price</th>
+                        <th className="text-right p-3 font-semibold w-24">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inv.items?.map((item, idx) => (
+                        <tr
+                          key={item.id || idx}
+                          className={idx % 2 === 0 ? "bg-muted/20" : ""}
+                          data-testid={`row-invoice-item-${idx}`}
+                        >
+                          <td className="p-3" data-testid={`text-item-desc-${idx}`}>{item.description}</td>
+                          <td className="text-center p-3">{item.quantity}</td>
+                          <td className="text-right p-3">{formatCurrency(item.unitPrice)}</td>
+                          <td className="text-right p-3 font-medium">{formatCurrency(item.total)}</td>
+                        </tr>
+                      ))}
+                      {(!inv.items || inv.items.length === 0) && (
+                        <tr>
+                          <td colSpan={4} className="text-center text-muted-foreground p-6">
+                            No line items
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end mb-6">
+                  <div className="w-full max-w-xs">
+                    <div className="flex justify-between gap-4 py-1.5">
+                      <span className="text-sm text-muted-foreground">Subtotal</span>
+                      <span className="text-sm font-medium" data-testid="text-print-subtotal">{formatCurrency(inv.subtotal)}</span>
+                    </div>
+                    {parseFloat(String(inv.tax)) > 0 && (
+                      <div className="flex justify-between gap-4 py-1.5">
+                        <span className="text-sm text-muted-foreground">Tax</span>
+                        <span className="text-sm font-medium">{formatCurrency(inv.tax)}</span>
+                      </div>
+                    )}
+                    {parseFloat(String(inv.discount)) > 0 && (
+                      <div className="flex justify-between gap-4 py-1.5">
+                        <span className="text-sm text-muted-foreground">Discount</span>
+                        <span className="text-sm font-medium">-{formatCurrency(inv.discount)}</span>
+                      </div>
+                    )}
+                    <div
+                      className="flex justify-between gap-4 py-2 mt-1 rounded-md px-3 -mx-3"
+                      style={{ backgroundColor: headerColor, color: headerTextColor }}
+                    >
+                      <span className="font-bold">Total</span>
+                      <span className="font-bold text-base" data-testid="text-print-total">{formatCurrency(inv.total)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {inv.notes && (
+                  <div className="mb-4 p-3 rounded-md bg-muted/30">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Notes</p>
+                    <p className="text-sm" data-testid="text-invoice-notes">{inv.notes}</p>
                   </div>
                 )}
-                {parseFloat(String(inv.discount)) > 0 && (
-                  <div className="flex justify-between gap-8 w-full max-w-xs">
-                    <span className="text-sm text-muted-foreground">Discount</span>
-                    <span className="text-sm">-{formatCurrency(inv.discount)}</span>
+
+                <div className="border-t pt-4 mt-2">
+                  <div className="flex justify-between gap-6 flex-wrap">
+                    <div className="flex flex-col gap-2 flex-1 min-w-[200px]">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Payment Information</p>
+                        {clinicAddress && <p className="text-xs text-muted-foreground">{clinicAddress}</p>}
+                        {clinicPhone && <p className="text-xs text-muted-foreground">{clinicPhone}</p>}
+                        {clinicEmail && <p className="text-xs text-muted-foreground">{clinicEmail}</p>}
+                      </div>
+                      {upiId && (
+                        <div className="mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium">UPI:</span> {upiId}
+                          </p>
+                          {clinicSettings?.upiBankName && (
+                            <p className="text-xs text-muted-foreground">
+                              <span className="font-medium">Bank:</span> {clinicSettings.upiBankName}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {clinicSettings?.termsConditions && (
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Terms & Conditions</p>
+                          <p className="text-xs text-muted-foreground whitespace-pre-line">{clinicSettings.termsConditions}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {upiId && totalNum > 0 && (
+                      <div className="flex flex-col items-center gap-1.5" data-testid="invoice-qr-section">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scan to Pay</p>
+                        <div className="invoice-qr p-2 bg-white rounded-md border" data-testid="invoice-qr-code">
+                          <QRCodeSVG
+                            value={upiUrl}
+                            size={120}
+                            level="M"
+                            includeMargin={false}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground font-medium" style={{ color: headerColor }}>
+                          {formatCurrency(totalNum)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{upiPayeeName}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {clinicSettings?.footerText && (
+                  <div className="mt-4 pt-3 border-t text-center">
+                    <p className="text-sm font-medium" style={{ color: headerColor }} data-testid="text-invoice-footer">
+                      {clinicSettings.footerText}
+                    </p>
                   </div>
                 )}
-                <div className="flex justify-between gap-8 w-full max-w-xs border-t pt-2 mt-1">
-                  <span className="font-semibold">Total</span>
-                  <span className="font-semibold" data-testid="text-print-total">{formatCurrency(inv.total)}</span>
-                </div>
               </div>
-
-              {inv.notes && (
-                <div className="mt-4 pt-4 border-t">
-                  <span className="text-xs text-muted-foreground">NOTES</span>
-                  <p className="text-sm mt-1" data-testid="text-invoice-notes">{inv.notes}</p>
-                </div>
-              )}
-
-              {clinicSettings?.termsConditions && (
-                <div className="mt-4 pt-4 border-t">
-                  <span className="text-xs text-muted-foreground">TERMS & CONDITIONS</span>
-                  <p className="text-xs mt-1 text-muted-foreground whitespace-pre-line">{clinicSettings.termsConditions}</p>
-                </div>
-              )}
-
-              {clinicSettings?.footerText && (
-                <div className="mt-4 pt-4 border-t text-center">
-                  <p className="text-xs text-muted-foreground italic" data-testid="text-invoice-footer">
-                    {clinicSettings.footerText}
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         )}

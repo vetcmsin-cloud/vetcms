@@ -100,6 +100,8 @@ shared/
 7. **User Management**: Admin-only CRUD for staff accounts with role assignment
 8. **Login**: Email/password authentication with demo credentials display, dynamic background from clinic settings
 9. **Clinic Settings** (Admin): Configure invoice printer type (Thermal 58mm/80mm, A5, A4), clinic info for bills (name, address, phone, email, GST, registration, footer, terms), and login screen background
+10. **Invoice Design Tool** (Admin): Customize invoice header/accent/text colors, font style, clinic logo. Live preview in settings.
+11. **UPI Payment QR Code**: Configurable UPI ID, bank name, payee name in admin settings. Auto-generated QR code on invoices with amount pre-filled. Currency in INR (\u20B9).
 
 ## API Endpoints
 ### Auth

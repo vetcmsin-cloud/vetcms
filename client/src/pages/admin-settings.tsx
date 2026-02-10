@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings, Printer, Building2, ImageIcon, Save, ArrowLeft } from "lucide-react";
+import { Settings, Printer, Building2, ImageIcon, Save, ArrowLeft, Palette, QrCode } from "lucide-react";
 import { Link } from "wouter";
 
 type ClinicSettings = Record<string, string>;
@@ -27,6 +27,12 @@ const PRINTER_TYPES = [
   { value: "a4", label: "A4 Full Page", description: "Standard A4 paper size (210 x 297 mm)" },
 ];
 
+const FONT_OPTIONS = [
+  { value: "default", label: "Default (System)" },
+  { value: "serif", label: "Serif (Times)" },
+  { value: "mono", label: "Monospace" },
+];
+
 export default function AdminSettings() {
   const { toast } = useToast();
   const { data: settings, isLoading } = useQuery<ClinicSettings>({
@@ -34,6 +40,12 @@ export default function AdminSettings() {
   });
 
   const [printerType, setPrinterType] = useState("a4");
+  const [invoiceHeaderColor, setInvoiceHeaderColor] = useState("#0f766e");
+  const [invoiceAccentColor, setInvoiceAccentColor] = useState("#0d9488");
+  const [invoiceFontFamily, setInvoiceFontFamily] = useState("default");
+  const [clinicLogoUrl, setClinicLogoUrl] = useState("");
+  const [invoiceHeaderTextColor, setInvoiceHeaderTextColor] = useState("#ffffff");
+
   const [clinicName, setClinicName] = useState("");
   const [clinicAddress, setClinicAddress] = useState("");
   const [clinicPhone, setClinicPhone] = useState("");
@@ -42,12 +54,22 @@ export default function AdminSettings() {
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [footerText, setFooterText] = useState("");
   const [termsConditions, setTermsConditions] = useState("");
+
+  const [upiId, setUpiId] = useState("");
+  const [upiBankName, setUpiBankName] = useState("");
+  const [upiPayeeName, setUpiPayeeName] = useState("");
+
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
   const [loginBackgroundColor, setLoginBackgroundColor] = useState("");
 
   useEffect(() => {
     if (settings) {
       setPrinterType(settings.printerType || "a4");
+      setInvoiceHeaderColor(settings.invoiceHeaderColor || "#0f766e");
+      setInvoiceAccentColor(settings.invoiceAccentColor || "#0d9488");
+      setInvoiceFontFamily(settings.invoiceFontFamily || "default");
+      setClinicLogoUrl(settings.clinicLogoUrl || "");
+      setInvoiceHeaderTextColor(settings.invoiceHeaderTextColor || "#ffffff");
       setClinicName(settings.clinicName || "");
       setClinicAddress(settings.clinicAddress || "");
       setClinicPhone(settings.clinicPhone || "");
@@ -56,6 +78,9 @@ export default function AdminSettings() {
       setRegistrationNumber(settings.registrationNumber || "");
       setFooterText(settings.footerText || "");
       setTermsConditions(settings.termsConditions || "");
+      setUpiId(settings.upiId || "");
+      setUpiBankName(settings.upiBankName || "");
+      setUpiPayeeName(settings.upiPayeeName || "");
       setLoginBackgroundUrl(settings.loginBackgroundUrl || "");
       setLoginBackgroundColor(settings.loginBackgroundColor || "");
     }
@@ -76,7 +101,14 @@ export default function AdminSettings() {
   });
 
   const saveInvoiceDesign = () => {
-    saveMutation.mutate({ printerType });
+    saveMutation.mutate({
+      printerType,
+      invoiceHeaderColor,
+      invoiceAccentColor,
+      invoiceFontFamily,
+      clinicLogoUrl,
+      invoiceHeaderTextColor,
+    });
   };
 
   const saveClinicInfo = () => {
@@ -89,6 +121,14 @@ export default function AdminSettings() {
       registrationNumber,
       footerText,
       termsConditions,
+    });
+  };
+
+  const saveUpiSettings = () => {
+    saveMutation.mutate({
+      upiId,
+      upiBankName,
+      upiPayeeName,
     });
   };
 
@@ -124,18 +164,18 @@ export default function AdminSettings() {
           </h1>
         </div>
         <p className="text-sm text-muted-foreground ml-[72px]">
-          Configure invoice design, clinic information, and login appearance.
+          Configure invoice design, clinic information, UPI payments, and login appearance.
         </p>
       </div>
 
       <Card data-testid="card-invoice-design">
         <CardHeader className="flex flex-row items-center gap-2 pb-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 flex-shrink-0">
-            <Printer className="w-4 h-4 text-primary" />
+            <Palette className="w-4 h-4 text-primary" />
           </div>
           <div className="flex flex-col gap-0.5">
             <CardTitle className="text-base">Invoice Design</CardTitle>
-            <p className="text-xs text-muted-foreground">Choose the printer type for invoice printing layout.</p>
+            <p className="text-xs text-muted-foreground">Customize the look and layout of your invoices.</p>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -178,6 +218,123 @@ export default function AdminSettings() {
                 <span className="text-xs font-medium text-center">{pt.label}</span>
               </div>
             ))}
+          </div>
+
+          <div className="border-t pt-4 mt-2">
+            <p className="text-sm font-medium mb-3">Colors & Styling</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="setting-header-color">Header Background</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="setting-header-color"
+                    value={invoiceHeaderColor}
+                    onChange={(e) => setInvoiceHeaderColor(e.target.value)}
+                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
+                    data-testid="input-header-color"
+                  />
+                  <Input
+                    value={invoiceHeaderColor}
+                    onChange={(e) => setInvoiceHeaderColor(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-header-color-text"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="setting-header-text-color">Header Text Color</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="setting-header-text-color"
+                    value={invoiceHeaderTextColor}
+                    onChange={(e) => setInvoiceHeaderTextColor(e.target.value)}
+                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
+                    data-testid="input-header-text-color"
+                  />
+                  <Input
+                    value={invoiceHeaderTextColor}
+                    onChange={(e) => setInvoiceHeaderTextColor(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-header-text-color-text"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="setting-accent-color">Accent / Table Header</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    id="setting-accent-color"
+                    value={invoiceAccentColor}
+                    onChange={(e) => setInvoiceAccentColor(e.target.value)}
+                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
+                    data-testid="input-accent-color"
+                  />
+                  <Input
+                    value={invoiceAccentColor}
+                    onChange={(e) => setInvoiceAccentColor(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-accent-color-text"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Font Style</Label>
+              <Select value={invoiceFontFamily} onValueChange={setInvoiceFontFamily}>
+                <SelectTrigger data-testid="select-font-family">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FONT_OPTIONS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="setting-clinic-logo">Clinic Logo URL</Label>
+              <Input
+                id="setting-clinic-logo"
+                value={clinicLogoUrl}
+                onChange={(e) => setClinicLogoUrl(e.target.value)}
+                placeholder="https://example.com/logo.png"
+                data-testid="input-clinic-logo-url"
+              />
+            </div>
+          </div>
+
+          <div className="border rounded-md p-4 bg-muted/30">
+            <p className="text-xs text-muted-foreground mb-2">Preview</p>
+            <div
+              className="rounded-md p-3"
+              style={{ backgroundColor: invoiceHeaderColor, color: invoiceHeaderTextColor }}
+              data-testid="preview-invoice-header"
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="font-bold text-sm">{clinicName || "Your Clinic Name"}</p>
+                  <p className="text-xs opacity-80">{clinicAddress || "Clinic Address"}</p>
+                </div>
+                <p className="text-lg font-bold opacity-90">INVOICE</p>
+              </div>
+            </div>
+            <div
+              className="rounded-md p-2 mt-1 text-xs font-medium"
+              style={{ backgroundColor: invoiceAccentColor, color: invoiceHeaderTextColor }}
+            >
+              <div className="flex justify-between gap-2">
+                <span>Description of Services</span>
+                <span>Qty</span>
+                <span>Price</span>
+                <span>Total</span>
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-end">
@@ -306,6 +463,75 @@ export default function AdminSettings() {
             >
               <Save className="w-4 h-4 mr-1" />
               {saveMutation.isPending ? "Saving..." : "Save Clinic Info"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-upi-settings">
+        <CardHeader className="flex flex-row items-center gap-2 pb-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 flex-shrink-0">
+            <QrCode className="w-4 h-4 text-primary" />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <CardTitle className="text-base">UPI Payment Settings</CardTitle>
+            <p className="text-xs text-muted-foreground">Configure UPI details for payment QR codes on invoices.</p>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="setting-upi-id">UPI ID</Label>
+              <Input
+                id="setting-upi-id"
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                placeholder="yourname@upi"
+                data-testid="input-upi-id"
+              />
+              <p className="text-xs text-muted-foreground">Your UPI address for receiving payments.</p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="setting-upi-bank">Bank Name</Label>
+              <Input
+                id="setting-upi-bank"
+                value={upiBankName}
+                onChange={(e) => setUpiBankName(e.target.value)}
+                placeholder="e.g., ICICI Bank"
+                data-testid="input-upi-bank-name"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="setting-upi-payee">Payee Name</Label>
+            <Input
+              id="setting-upi-payee"
+              value={upiPayeeName}
+              onChange={(e) => setUpiPayeeName(e.target.value)}
+              placeholder="Clinic or business name for UPI"
+              data-testid="input-upi-payee-name"
+            />
+            <p className="text-xs text-muted-foreground">The name shown to the payer when scanning the QR code.</p>
+          </div>
+
+          {upiId && (
+            <div className="border rounded-md p-3 bg-muted/30">
+              <p className="text-xs text-muted-foreground mb-1">Payment QR codes will appear on invoices</p>
+              <p className="text-xs font-mono break-all">
+                upi://pay?pa={upiId}&pn={encodeURIComponent(upiPayeeName || clinicName || "Clinic")}&cu=INR
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button
+              onClick={saveUpiSettings}
+              disabled={saveMutation.isPending}
+              data-testid="button-save-upi"
+            >
+              <Save className="w-4 h-4 mr-1" />
+              {saveMutation.isPending ? "Saving..." : "Save UPI Settings"}
             </Button>
           </div>
         </CardContent>
