@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -15,8 +18,13 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings, Printer, Building2, ImageIcon, Save, ArrowLeft, Palette, QrCode, Upload, X, Loader2 } from "lucide-react";
+import {
+  Settings, Printer, Building2, ImageIcon, Save, ArrowLeft,
+  Palette, QrCode, Upload, X, Loader2, Eye, Type, LayoutGrid,
+  ToggleLeft, Columns3, PanelTop,
+} from "lucide-react";
 import { Link } from "wouter";
+import { QRCodeSVG } from "qrcode.react";
 
 type ClinicSettings = Record<string, string>;
 
@@ -32,6 +40,45 @@ const FONT_OPTIONS = [
   { value: "serif", label: "Serif (Times)" },
   { value: "mono", label: "Monospace" },
 ];
+
+const LOGO_SIZE_OPTIONS = [
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Medium" },
+  { value: "large", label: "Large" },
+];
+
+const LOGO_POSITION_OPTIONS = [
+  { value: "left", label: "Left" },
+  { value: "center", label: "Center" },
+  { value: "right", label: "Right" },
+];
+
+const TABLE_STYLE_OPTIONS = [
+  { value: "striped", label: "Striped Rows" },
+  { value: "bordered", label: "All Borders" },
+  { value: "minimal", label: "Minimal" },
+];
+
+function getFontFamily(fontSetting: string) {
+  switch (fontSetting) {
+    case "serif": return "'Times New Roman', 'Georgia', serif";
+    case "mono": return "'Courier New', 'Consolas', monospace";
+    default: return "system-ui, -apple-system, sans-serif";
+  }
+}
+
+function getLogoSizePx(size: string) {
+  switch (size) {
+    case "small": return 36;
+    case "large": return 72;
+    default: return 48;
+  }
+}
+
+function formatCurrency(amount: string | number) {
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  return `\u20B9${num.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
 
 function ImageUploader({
   label,
@@ -115,11 +162,10 @@ function ImageUploader({
           <img
             src={currentUrl}
             alt={label}
-            className="w-24 h-24 rounded-md border object-cover"
+            className="w-20 h-20 rounded-md border object-cover"
             data-testid={`${testIdPrefix}-preview`}
           />
           <div className="flex flex-col gap-1.5">
-            <p className="text-xs text-muted-foreground break-all max-w-xs">{currentUrl}</p>
             <div className="flex items-center gap-2 flex-wrap">
               <Button
                 size="sm"
@@ -145,19 +191,18 @@ function ImageUploader({
         </div>
       ) : (
         <div
-          className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-md cursor-pointer hover-elevate"
+          className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-dashed rounded-md cursor-pointer hover-elevate"
           onClick={() => fileRef.current?.click()}
           data-testid={`${testIdPrefix}-dropzone`}
         >
           {uploading ? (
-            <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+            <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
           ) : (
-            <Upload className="w-6 h-6 text-muted-foreground" />
+            <Upload className="w-5 h-5 text-muted-foreground" />
           )}
-          <p className="text-sm text-muted-foreground">
-            {uploading ? "Uploading..." : "Click to upload image"}
+          <p className="text-xs text-muted-foreground">
+            {uploading ? "Uploading..." : "Click to upload"}
           </p>
-          <p className="text-xs text-muted-foreground">JPG, PNG, GIF, WebP (max 5 MB)</p>
         </div>
       )}
       <input
@@ -168,6 +213,356 @@ function ImageUploader({
         onChange={handleUpload}
         data-testid={`${testIdPrefix}-input`}
       />
+    </div>
+  );
+}
+
+function SettingToggle({
+  label,
+  description,
+  checked,
+  onCheckedChange,
+  testId,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  testId: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div className="flex flex-col gap-0.5 min-w-0">
+        <span className="text-sm font-medium">{label}</span>
+        {description && <span className="text-xs text-muted-foreground">{description}</span>}
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} data-testid={testId} />
+    </div>
+  );
+}
+
+function ColorInput({
+  label,
+  value,
+  onChange,
+  testId,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  testId: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
+          data-testid={`${testId}-picker`}
+        />
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1"
+          data-testid={`${testId}-text`}
+        />
+      </div>
+    </div>
+  );
+}
+
+const SAMPLE_ITEMS = [
+  { id: 1, description: "General Consultation", quantity: 1, unitPrice: "500.00", total: "500.00" },
+  { id: 2, description: "Vaccination - Rabies", quantity: 1, unitPrice: "800.00", total: "800.00" },
+  { id: 3, description: "Blood Test (CBC)", quantity: 1, unitPrice: "350.00", total: "350.00" },
+];
+
+function InvoicePreview({
+  headerColor,
+  headerTextColor,
+  accentColor,
+  fontFamily,
+  clinicLogoUrl,
+  logoSize,
+  logoPosition,
+  clinicName,
+  clinicAddress,
+  clinicPhone,
+  clinicEmail,
+  gstNumber,
+  registrationNumber,
+  footerText,
+  termsConditions,
+  upiId,
+  upiPayeeName,
+  invoiceTitle,
+  showGst,
+  showRegNumber,
+  showClinicPhone,
+  showClinicEmail,
+  showTerms,
+  showNotes,
+  showFooter,
+  showUpiQr,
+  showPatientInfo,
+  showDueDate,
+  tableStyle,
+  colDescription,
+  colQuantity,
+  colPrice,
+  colTotal,
+  totalBgMatchHeader,
+}: {
+  headerColor: string;
+  headerTextColor: string;
+  accentColor: string;
+  fontFamily: string;
+  clinicLogoUrl: string;
+  logoSize: string;
+  logoPosition: string;
+  clinicName: string;
+  clinicAddress: string;
+  clinicPhone: string;
+  clinicEmail: string;
+  gstNumber: string;
+  registrationNumber: string;
+  footerText: string;
+  termsConditions: string;
+  upiId: string;
+  upiPayeeName: string;
+  invoiceTitle: string;
+  showGst: boolean;
+  showRegNumber: boolean;
+  showClinicPhone: boolean;
+  showClinicEmail: boolean;
+  showTerms: boolean;
+  showNotes: boolean;
+  showFooter: boolean;
+  showUpiQr: boolean;
+  showPatientInfo: boolean;
+  showDueDate: boolean;
+  tableStyle: string;
+  colDescription: string;
+  colQuantity: string;
+  colPrice: string;
+  colTotal: string;
+  totalBgMatchHeader: boolean;
+}) {
+  const logoPx = getLogoSizePx(logoSize);
+  const subtotal = 1650;
+  const tax = 297;
+  const total = 1947;
+
+  const upiUrl = upiId
+    ? `upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiPayeeName || clinicName || "Clinic")}&am=${total.toFixed(2)}&cu=INR`
+    : "";
+
+  const getRowClass = (idx: number) => {
+    if (tableStyle === "striped") return idx % 2 === 0 ? "bg-muted/20" : "";
+    if (tableStyle === "bordered") return "border-b";
+    return "";
+  };
+
+  const tableBorderClass = tableStyle === "bordered" ? "border" : tableStyle === "minimal" ? "" : "border";
+
+  const logoElement = clinicLogoUrl ? (
+    <img
+      src={clinicLogoUrl}
+      alt="Clinic Logo"
+      className="rounded-md object-contain bg-white/20 p-1"
+      style={{ width: logoPx, height: logoPx }}
+      data-testid="preview-logo"
+    />
+  ) : null;
+
+  return (
+    <div
+      className="rounded-md overflow-hidden border bg-background"
+      style={{ fontFamily, fontSize: "12px" }}
+      data-testid="invoice-live-preview"
+    >
+      <div
+        className="p-5"
+        style={{ backgroundColor: headerColor, color: headerTextColor }}
+      >
+        {logoPosition === "center" ? (
+          <div className="flex flex-col items-center gap-2 text-center">
+            {logoElement}
+            <div>
+              <p className="font-bold text-base">{clinicName || "Your Clinic Name"}</p>
+              {clinicAddress && <p className="text-[11px] opacity-85 mt-0.5">{clinicAddress}</p>}
+              <div className="flex items-center gap-3 justify-center mt-1 flex-wrap">
+                {showClinicPhone && clinicPhone && <span className="text-[10px] opacity-75">{clinicPhone}</span>}
+                {showClinicEmail && clinicEmail && <span className="text-[10px] opacity-75">{clinicEmail}</span>}
+              </div>
+            </div>
+            <p className="text-lg font-bold tracking-wide opacity-90 mt-1">{invoiceTitle}</p>
+            <div className="flex items-center gap-3 justify-center flex-wrap">
+              {showGst && gstNumber && <span className="text-[10px] opacity-70">GST: {gstNumber}</span>}
+              {showRegNumber && registrationNumber && <span className="text-[10px] opacity-70">Reg: {registrationNumber}</span>}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className={`flex items-start gap-3 ${logoPosition === "right" ? "order-2" : ""}`}>
+              {logoPosition === "left" && logoElement}
+              <div>
+                <p className="font-bold text-base">{clinicName || "Your Clinic Name"}</p>
+                {clinicAddress && <p className="text-[11px] opacity-85 mt-0.5">{clinicAddress}</p>}
+                <div className="flex flex-col gap-0.5 mt-1">
+                  {showClinicPhone && clinicPhone && <span className="text-[10px] opacity-75">{clinicPhone}</span>}
+                  {showClinicEmail && clinicEmail && <span className="text-[10px] opacity-75">{clinicEmail}</span>}
+                </div>
+              </div>
+            </div>
+            <div className={`${logoPosition === "right" ? "order-1" : "text-right"}`}>
+              <div className={`flex items-start gap-3 ${logoPosition === "right" ? "" : "justify-end"}`}>
+                <div>
+                  <p className="text-lg font-bold tracking-wide opacity-90">{invoiceTitle}</p>
+                  {showGst && gstNumber && <p className="text-[10px] opacity-70 mt-1">GST: {gstNumber}</p>}
+                  {showRegNumber && registrationNumber && <p className="text-[10px] opacity-70">Reg: {registrationNumber}</p>}
+                </div>
+                {logoPosition === "right" && logoElement}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="p-5">
+        <div className="flex justify-between gap-4 mb-4 flex-wrap">
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Bill To</p>
+            <p className="font-semibold text-sm">Rahul Sharma</p>
+            <p className="text-[11px] text-muted-foreground">123 MG Road, Bengaluru</p>
+            <p className="text-[11px] text-muted-foreground">+91 98765 43210</p>
+            {showPatientInfo && (
+              <p className="text-[11px] mt-0.5">
+                <span className="text-muted-foreground">Patient:</span>{" "}
+                <span className="font-medium">Bruno</span>{" "}
+                <span className="text-muted-foreground">(Dog - Labrador)</span>
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5 text-right">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Date</p>
+              <p className="font-medium text-sm">10/02/2026</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Invoice Number</p>
+              <p className="font-semibold text-sm" style={{ color: headerColor }}>#PET-0042</p>
+            </div>
+            {showDueDate && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Due Date</p>
+                <p className="font-medium text-sm">17/02/2026</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={`rounded-md overflow-hidden ${tableBorderClass} mb-4`}>
+          <table className="w-full text-[11px]" data-testid="preview-table">
+            <thead>
+              <tr style={{ backgroundColor: accentColor, color: headerTextColor }}>
+                <th className="text-left p-2.5 font-semibold">{colDescription}</th>
+                <th className="text-center p-2.5 font-semibold w-12">{colQuantity}</th>
+                <th className="text-right p-2.5 font-semibold w-20">{colPrice}</th>
+                <th className="text-right p-2.5 font-semibold w-20">{colTotal}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SAMPLE_ITEMS.map((item, idx) => (
+                <tr key={item.id} className={getRowClass(idx)}>
+                  <td className={`p-2.5 ${tableStyle === "bordered" ? "border-r" : ""}`}>{item.description}</td>
+                  <td className={`text-center p-2.5 ${tableStyle === "bordered" ? "border-r" : ""}`}>{item.quantity}</td>
+                  <td className={`text-right p-2.5 ${tableStyle === "bordered" ? "border-r" : ""}`}>{formatCurrency(item.unitPrice)}</td>
+                  <td className="text-right p-2.5 font-medium">{formatCurrency(item.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-end mb-4">
+          <div className="w-full max-w-[200px]">
+            <div className="flex justify-between gap-3 py-1">
+              <span className="text-[11px] text-muted-foreground">Subtotal</span>
+              <span className="text-[11px] font-medium">{formatCurrency(subtotal)}</span>
+            </div>
+            <div className="flex justify-between gap-3 py-1">
+              <span className="text-[11px] text-muted-foreground">Tax (18%)</span>
+              <span className="text-[11px] font-medium">{formatCurrency(tax)}</span>
+            </div>
+            <div
+              className="flex justify-between gap-3 py-1.5 mt-1 rounded-md px-2 -mx-2"
+              style={totalBgMatchHeader
+                ? { backgroundColor: headerColor, color: headerTextColor }
+                : { backgroundColor: accentColor, color: headerTextColor }
+              }
+            >
+              <span className="font-bold text-[12px]">Total</span>
+              <span className="font-bold text-sm">{formatCurrency(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {showNotes && (
+          <div className="mb-3 p-2.5 rounded-md bg-muted/30">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Notes</p>
+            <p className="text-[11px]">Follow-up vaccination scheduled in 3 weeks. Give prescribed medication twice daily.</p>
+          </div>
+        )}
+
+        <div className="border-t pt-3 mt-2">
+          <div className="flex justify-between gap-4 flex-wrap">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Payment Information</p>
+                {clinicAddress && <p className="text-[10px] text-muted-foreground">{clinicAddress}</p>}
+                {showClinicPhone && clinicPhone && <p className="text-[10px] text-muted-foreground">{clinicPhone}</p>}
+                {showClinicEmail && clinicEmail && <p className="text-[10px] text-muted-foreground">{clinicEmail}</p>}
+              </div>
+              {upiId && (
+                <div className="mt-0.5">
+                  <p className="text-[10px] text-muted-foreground">
+                    <span className="font-medium">UPI:</span> {upiId}
+                  </p>
+                </div>
+              )}
+              {showTerms && termsConditions && (
+                <div className="mt-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Terms & Conditions</p>
+                  <p className="text-[10px] text-muted-foreground whitespace-pre-line">{termsConditions}</p>
+                </div>
+              )}
+            </div>
+
+            {showUpiQr && upiId && (
+              <div className="flex flex-col items-center gap-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Scan to Pay</p>
+                <div className="p-1.5 bg-white rounded-md border">
+                  <QRCodeSVG value={upiUrl} size={80} level="M" includeMargin={false} />
+                </div>
+                <p className="text-[10px] text-muted-foreground font-medium" style={{ color: headerColor }}>
+                  {formatCurrency(total)}
+                </p>
+                <p className="text-[9px] text-muted-foreground">{upiPayeeName}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {showFooter && footerText && (
+          <div className="mt-3 pt-2 border-t text-center">
+            <p className="text-[11px] font-medium" style={{ color: headerColor }}>{footerText}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -184,6 +579,28 @@ export default function AdminSettings() {
   const [invoiceFontFamily, setInvoiceFontFamily] = useState("default");
   const [clinicLogoUrl, setClinicLogoUrl] = useState("");
   const [invoiceHeaderTextColor, setInvoiceHeaderTextColor] = useState("#ffffff");
+
+  const [invoiceTitle, setInvoiceTitle] = useState("INVOICE");
+  const [invoiceLogoSize, setInvoiceLogoSize] = useState("medium");
+  const [invoiceLogoPosition, setInvoiceLogoPosition] = useState("left");
+  const [invoiceTableStyle, setInvoiceTableStyle] = useState("striped");
+  const [invoiceTotalBgHeader, setInvoiceTotalBgHeader] = useState("true");
+
+  const [showGst, setShowGst] = useState(true);
+  const [showRegNumber, setShowRegNumber] = useState(true);
+  const [showClinicPhone, setShowClinicPhone] = useState(true);
+  const [showClinicEmail, setShowClinicEmail] = useState(true);
+  const [showTerms, setShowTerms] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
+  const [showFooter, setShowFooter] = useState(true);
+  const [showUpiQr, setShowUpiQr] = useState(true);
+  const [showPatientInfo, setShowPatientInfo] = useState(true);
+  const [showDueDate, setShowDueDate] = useState(true);
+
+  const [colDescription, setColDescription] = useState("Description of Services");
+  const [colQuantity, setColQuantity] = useState("Qty");
+  const [colPrice, setColPrice] = useState("Price");
+  const [colTotal, setColTotal] = useState("Total");
 
   const [clinicName, setClinicName] = useState("");
   const [clinicAddress, setClinicAddress] = useState("");
@@ -209,6 +626,25 @@ export default function AdminSettings() {
       setInvoiceFontFamily(settings.invoiceFontFamily || "default");
       setClinicLogoUrl(settings.clinicLogoUrl || "");
       setInvoiceHeaderTextColor(settings.invoiceHeaderTextColor || "#ffffff");
+      setInvoiceTitle(settings.invoiceTitle || "INVOICE");
+      setInvoiceLogoSize(settings.invoiceLogoSize || "medium");
+      setInvoiceLogoPosition(settings.invoiceLogoPosition || "left");
+      setInvoiceTableStyle(settings.invoiceTableStyle || "striped");
+      setInvoiceTotalBgHeader(settings.invoiceTotalBgHeader || "true");
+      setShowGst(settings.invoiceShowGst !== "false");
+      setShowRegNumber(settings.invoiceShowRegNumber !== "false");
+      setShowClinicPhone(settings.invoiceShowClinicPhone !== "false");
+      setShowClinicEmail(settings.invoiceShowClinicEmail !== "false");
+      setShowTerms(settings.invoiceShowTerms !== "false");
+      setShowNotes(settings.invoiceShowNotes !== "false");
+      setShowFooter(settings.invoiceShowFooter !== "false");
+      setShowUpiQr(settings.invoiceShowUpiQr !== "false");
+      setShowPatientInfo(settings.invoiceShowPatientInfo !== "false");
+      setShowDueDate(settings.invoiceShowDueDate !== "false");
+      setColDescription(settings.invoiceColDescription || "Description of Services");
+      setColQuantity(settings.invoiceColQuantity || "Qty");
+      setColPrice(settings.invoiceColPrice || "Price");
+      setColTotal(settings.invoiceColTotal || "Total");
       setClinicName(settings.clinicName || "");
       setClinicAddress(settings.clinicAddress || "");
       setClinicPhone(settings.clinicPhone || "");
@@ -239,7 +675,7 @@ export default function AdminSettings() {
     },
   });
 
-  const saveInvoiceDesign = () => {
+  const saveAllInvoiceSettings = () => {
     saveMutation.mutate({
       printerType,
       invoiceHeaderColor,
@@ -247,6 +683,25 @@ export default function AdminSettings() {
       invoiceFontFamily,
       clinicLogoUrl,
       invoiceHeaderTextColor,
+      invoiceTitle,
+      invoiceLogoSize,
+      invoiceLogoPosition,
+      invoiceTableStyle,
+      invoiceTotalBgHeader,
+      invoiceShowGst: String(showGst),
+      invoiceShowRegNumber: String(showRegNumber),
+      invoiceShowClinicPhone: String(showClinicPhone),
+      invoiceShowClinicEmail: String(showClinicEmail),
+      invoiceShowTerms: String(showTerms),
+      invoiceShowNotes: String(showNotes),
+      invoiceShowFooter: String(showFooter),
+      invoiceShowUpiQr: String(showUpiQr),
+      invoiceShowPatientInfo: String(showPatientInfo),
+      invoiceShowDueDate: String(showDueDate),
+      invoiceColDescription: colDescription,
+      invoiceColQuantity: colQuantity,
+      invoiceColPrice: colPrice,
+      invoiceColTotal: colTotal,
     });
   };
 
@@ -278,9 +733,11 @@ export default function AdminSettings() {
     });
   };
 
+  const fontFamily = useMemo(() => getFontFamily(invoiceFontFamily), [invoiceFontFamily]);
+
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6 p-6 max-w-4xl mx-auto" data-testid="page-admin-settings">
+      <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-admin-settings">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-64 w-full" />
@@ -289,7 +746,7 @@ export default function AdminSettings() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-4xl mx-auto" data-testid="page-admin-settings">
+    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-admin-settings">
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <Link href="/admin">
@@ -303,186 +760,420 @@ export default function AdminSettings() {
           </h1>
         </div>
         <p className="text-sm text-muted-foreground ml-[72px]">
-          Configure invoice design, clinic information, UPI payments, and login appearance.
+          Design your invoices, manage clinic information, and customize appearance.
         </p>
       </div>
 
-      <Card data-testid="card-invoice-design">
+      <Card data-testid="card-invoice-designer">
         <CardHeader className="flex flex-row items-center gap-2 pb-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 flex-shrink-0">
             <Palette className="w-4 h-4 text-primary" />
           </div>
           <div className="flex flex-col gap-0.5">
-            <CardTitle className="text-base">Invoice Design</CardTitle>
-            <p className="text-xs text-muted-foreground">Customize the look and layout of your invoices.</p>
+            <CardTitle className="text-base">Invoice Design Studio</CardTitle>
+            <p className="text-xs text-muted-foreground">Complete control over your invoice layout, colors, fields, and styling.</p>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label>Printer Type</Label>
-            <Select value={printerType} onValueChange={setPrinterType}>
-              <SelectTrigger data-testid="select-printer-type">
-                <SelectValue placeholder="Select printer type" />
-              </SelectTrigger>
-              <SelectContent>
-                {PRINTER_TYPES.map((pt) => (
-                  <SelectItem key={pt.value} value={pt.value}>
-                    {pt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {PRINTER_TYPES.find((pt) => pt.value === printerType)?.description}
-            </p>
-          </div>
+        <CardContent>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="flex flex-col gap-4 min-w-0">
+              <Tabs defaultValue="layout" className="w-full">
+                <TabsList className="grid w-full grid-cols-5" data-testid="tabs-invoice-design">
+                  <TabsTrigger value="layout" data-testid="tab-layout">
+                    <LayoutGrid className="w-3.5 h-3.5 mr-1" />
+                    <span className="hidden sm:inline">Layout</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="colors" data-testid="tab-colors">
+                    <Palette className="w-3.5 h-3.5 mr-1" />
+                    <span className="hidden sm:inline">Colors</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="fields" data-testid="tab-fields">
+                    <ToggleLeft className="w-3.5 h-3.5 mr-1" />
+                    <span className="hidden sm:inline">Fields</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="columns" data-testid="tab-columns">
+                    <Columns3 className="w-3.5 h-3.5 mr-1" />
+                    <span className="hidden sm:inline">Table</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="print" data-testid="tab-print">
+                    <Printer className="w-3.5 h-3.5 mr-1" />
+                    <span className="hidden sm:inline">Print</span>
+                  </TabsTrigger>
+                </TabsList>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {PRINTER_TYPES.map((pt) => (
-              <div
-                key={pt.value}
-                className={`flex flex-col items-center gap-2 p-3 rounded-md border cursor-pointer transition-colors ${
-                  printerType === pt.value
-                    ? "border-primary bg-primary/5"
-                    : "border-border"
-                }`}
-                onClick={() => setPrinterType(pt.value)}
-                data-testid={`option-printer-${pt.value}`}
-              >
-                <div
-                  className={`border rounded-sm bg-background ${
-                    pt.value.startsWith("thermal") ? "w-6 h-10" : pt.value === "a5" ? "w-8 h-10" : "w-10 h-12"
-                  }`}
+                <TabsContent value="layout" className="flex flex-col gap-4 mt-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="invoice-title">Invoice Title</Label>
+                    <Input
+                      id="invoice-title"
+                      value={invoiceTitle}
+                      onChange={(e) => setInvoiceTitle(e.target.value)}
+                      placeholder="INVOICE"
+                      data-testid="input-invoice-title"
+                    />
+                    <p className="text-xs text-muted-foreground">The main heading text on the invoice (e.g., INVOICE, TAX INVOICE, RECEIPT).</p>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Font Style</Label>
+                    <Select value={invoiceFontFamily} onValueChange={setInvoiceFontFamily}>
+                      <SelectTrigger data-testid="select-font-family">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FONT_OPTIONS.map((f) => (
+                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Separator />
+
+                  <ImageUploader
+                    label="Clinic Logo"
+                    currentUrl={clinicLogoUrl}
+                    onUploaded={(url) => setClinicLogoUrl(url)}
+                    onRemoved={() => setClinicLogoUrl("")}
+                    testIdPrefix="upload-clinic-logo"
+                    settingKey="clinicLogoUrl"
+                  />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label>Logo Size</Label>
+                      <Select value={invoiceLogoSize} onValueChange={setInvoiceLogoSize}>
+                        <SelectTrigger data-testid="select-logo-size">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LOGO_SIZE_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label>Logo Position</Label>
+                      <Select value={invoiceLogoPosition} onValueChange={setInvoiceLogoPosition}>
+                        <SelectTrigger data-testid="select-logo-position">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {LOGO_POSITION_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Table Row Style</Label>
+                    <Select value={invoiceTableStyle} onValueChange={setInvoiceTableStyle}>
+                      <SelectTrigger data-testid="select-table-style">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TABLE_STYLE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <SettingToggle
+                    label="Total bar uses header color"
+                    description="When off, the total bar will use the accent color instead."
+                    checked={invoiceTotalBgHeader === "true"}
+                    onCheckedChange={(v) => setInvoiceTotalBgHeader(String(v))}
+                    testId="toggle-total-bg-header"
+                  />
+                </TabsContent>
+
+                <TabsContent value="colors" className="flex flex-col gap-4 mt-4">
+                  <ColorInput
+                    label="Header Background"
+                    value={invoiceHeaderColor}
+                    onChange={setInvoiceHeaderColor}
+                    testId="input-header-color"
+                  />
+                  <ColorInput
+                    label="Header Text Color"
+                    value={invoiceHeaderTextColor}
+                    onChange={setInvoiceHeaderTextColor}
+                    testId="input-header-text-color"
+                  />
+                  <ColorInput
+                    label="Accent / Table Header"
+                    value={invoiceAccentColor}
+                    onChange={setInvoiceAccentColor}
+                    testId="input-accent-color"
+                  />
+                  <div className="rounded-md border p-3 bg-muted/30">
+                    <p className="text-xs text-muted-foreground mb-2">Color Presets</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {[
+                        { header: "#0f766e", accent: "#0d9488", text: "#ffffff", label: "Teal" },
+                        { header: "#1e40af", accent: "#2563eb", text: "#ffffff", label: "Blue" },
+                        { header: "#7c3aed", accent: "#8b5cf6", text: "#ffffff", label: "Purple" },
+                        { header: "#b91c1c", accent: "#dc2626", text: "#ffffff", label: "Red" },
+                        { header: "#c2410c", accent: "#ea580c", text: "#ffffff", label: "Orange" },
+                        { header: "#15803d", accent: "#16a34a", text: "#ffffff", label: "Green" },
+                        { header: "#1f2937", accent: "#374151", text: "#f9fafb", label: "Dark" },
+                        { header: "#78350f", accent: "#92400e", text: "#ffffff", label: "Brown" },
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          className="flex flex-col items-center gap-1 p-1.5 rounded-md border hover-elevate"
+                          onClick={() => {
+                            setInvoiceHeaderColor(preset.header);
+                            setInvoiceAccentColor(preset.accent);
+                            setInvoiceHeaderTextColor(preset.text);
+                          }}
+                          data-testid={`preset-${preset.label.toLowerCase()}`}
+                        >
+                          <div className="flex gap-0.5">
+                            <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: preset.header }} />
+                            <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: preset.accent }} />
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{preset.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="fields" className="flex flex-col gap-1 mt-4">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Toggle which sections appear on your invoices.
+                  </p>
+                  <SettingToggle
+                    label="GST / Tax Number"
+                    description="Show GST number in the invoice header."
+                    checked={showGst}
+                    onCheckedChange={setShowGst}
+                    testId="toggle-show-gst"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Registration Number"
+                    description="Show clinic registration number."
+                    checked={showRegNumber}
+                    onCheckedChange={setShowRegNumber}
+                    testId="toggle-show-reg"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Clinic Phone"
+                    description="Show phone number on invoice."
+                    checked={showClinicPhone}
+                    onCheckedChange={setShowClinicPhone}
+                    testId="toggle-show-phone"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Clinic Email"
+                    description="Show email on invoice."
+                    checked={showClinicEmail}
+                    onCheckedChange={setShowClinicEmail}
+                    testId="toggle-show-email"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Patient Information"
+                    description="Show pet name, species, breed on the invoice."
+                    checked={showPatientInfo}
+                    onCheckedChange={setShowPatientInfo}
+                    testId="toggle-show-patient"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Due Date"
+                    description="Show due date field on the invoice."
+                    checked={showDueDate}
+                    onCheckedChange={setShowDueDate}
+                    testId="toggle-show-due-date"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Notes Section"
+                    description="Show notes/remarks area on invoice."
+                    checked={showNotes}
+                    onCheckedChange={setShowNotes}
+                    testId="toggle-show-notes"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Terms & Conditions"
+                    description="Show terms and conditions section."
+                    checked={showTerms}
+                    onCheckedChange={setShowTerms}
+                    testId="toggle-show-terms"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="UPI QR Code"
+                    description="Show payment QR code on invoice."
+                    checked={showUpiQr}
+                    onCheckedChange={setShowUpiQr}
+                    testId="toggle-show-upi"
+                  />
+                  <Separator />
+                  <SettingToggle
+                    label="Footer Text"
+                    description="Show footer/thank-you message."
+                    checked={showFooter}
+                    onCheckedChange={setShowFooter}
+                    testId="toggle-show-footer"
+                  />
+                </TabsContent>
+
+                <TabsContent value="columns" className="flex flex-col gap-4 mt-4">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Customize the column header labels in the invoice table.
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Description Column</Label>
+                    <Input
+                      value={colDescription}
+                      onChange={(e) => setColDescription(e.target.value)}
+                      placeholder="Description of Services"
+                      data-testid="input-col-description"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Quantity Column</Label>
+                    <Input
+                      value={colQuantity}
+                      onChange={(e) => setColQuantity(e.target.value)}
+                      placeholder="Qty"
+                      data-testid="input-col-quantity"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Price Column</Label>
+                    <Input
+                      value={colPrice}
+                      onChange={(e) => setColPrice(e.target.value)}
+                      placeholder="Price"
+                      data-testid="input-col-price"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Total Column</Label>
+                    <Input
+                      value={colTotal}
+                      onChange={(e) => setColTotal(e.target.value)}
+                      placeholder="Total"
+                      data-testid="input-col-total"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="print" className="flex flex-col gap-4 mt-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Printer / Paper Type</Label>
+                    <Select value={printerType} onValueChange={setPrinterType}>
+                      <SelectTrigger data-testid="select-printer-type">
+                        <SelectValue placeholder="Select printer type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRINTER_TYPES.map((pt) => (
+                          <SelectItem key={pt.value} value={pt.value}>
+                            {pt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {PRINTER_TYPES.find((pt) => pt.value === printerType)?.description}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {PRINTER_TYPES.map((pt) => (
+                      <div
+                        key={pt.value}
+                        className={`flex flex-col items-center gap-2 p-3 rounded-md border cursor-pointer transition-colors ${
+                          printerType === pt.value
+                            ? "border-primary bg-primary/5"
+                            : "border-border"
+                        }`}
+                        onClick={() => setPrinterType(pt.value)}
+                        data-testid={`option-printer-${pt.value}`}
+                      >
+                        <div
+                          className={`border rounded-sm bg-background ${
+                            pt.value.startsWith("thermal") ? "w-6 h-10" : pt.value === "a5" ? "w-8 h-10" : "w-10 h-12"
+                          }`}
+                        />
+                        <span className="text-xs font-medium text-center">{pt.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={saveAllInvoiceSettings}
+                  disabled={saveMutation.isPending}
+                  data-testid="button-save-invoice-design"
+                >
+                  <Save className="w-4 h-4 mr-1" />
+                  {saveMutation.isPending ? "Saving..." : "Save Invoice Design"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <Eye className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">Live Preview</span>
+              </div>
+              <div className="sticky top-20">
+                <InvoicePreview
+                  headerColor={invoiceHeaderColor}
+                  headerTextColor={invoiceHeaderTextColor}
+                  accentColor={invoiceAccentColor}
+                  fontFamily={fontFamily}
+                  clinicLogoUrl={clinicLogoUrl}
+                  logoSize={invoiceLogoSize}
+                  logoPosition={invoiceLogoPosition}
+                  clinicName={clinicName || "PetPoint Pro Veterinary Clinic"}
+                  clinicAddress={clinicAddress || "123 Main Street, Bengaluru, Karnataka 560001"}
+                  clinicPhone={clinicPhone || "+91 80 1234 5678"}
+                  clinicEmail={clinicEmail || "clinic@petpointpro.in"}
+                  gstNumber={gstNumber || "29ABCDE1234F1ZH"}
+                  registrationNumber={registrationNumber || "VET/KA/2024/001"}
+                  footerText={footerText || "Thank you for choosing PetPoint Pro!"}
+                  termsConditions={termsConditions || "Payment due within 7 days. No refunds after treatment."}
+                  upiId={upiId || "clinic@upi"}
+                  upiPayeeName={upiPayeeName || clinicName || "PetPoint Pro"}
+                  invoiceTitle={invoiceTitle}
+                  showGst={showGst}
+                  showRegNumber={showRegNumber}
+                  showClinicPhone={showClinicPhone}
+                  showClinicEmail={showClinicEmail}
+                  showTerms={showTerms}
+                  showNotes={showNotes}
+                  showFooter={showFooter}
+                  showUpiQr={showUpiQr}
+                  showPatientInfo={showPatientInfo}
+                  showDueDate={showDueDate}
+                  tableStyle={invoiceTableStyle}
+                  colDescription={colDescription}
+                  colQuantity={colQuantity}
+                  colPrice={colPrice}
+                  colTotal={colTotal}
+                  totalBgMatchHeader={invoiceTotalBgHeader === "true"}
                 />
-                <span className="text-xs font-medium text-center">{pt.label}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="border-t pt-4 mt-2">
-            <p className="text-sm font-medium mb-3">Colors & Styling</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="setting-header-color">Header Background</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    id="setting-header-color"
-                    value={invoiceHeaderColor}
-                    onChange={(e) => setInvoiceHeaderColor(e.target.value)}
-                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
-                    data-testid="input-header-color"
-                  />
-                  <Input
-                    value={invoiceHeaderColor}
-                    onChange={(e) => setInvoiceHeaderColor(e.target.value)}
-                    className="flex-1"
-                    data-testid="input-header-color-text"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="setting-header-text-color">Header Text Color</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    id="setting-header-text-color"
-                    value={invoiceHeaderTextColor}
-                    onChange={(e) => setInvoiceHeaderTextColor(e.target.value)}
-                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
-                    data-testid="input-header-text-color"
-                  />
-                  <Input
-                    value={invoiceHeaderTextColor}
-                    onChange={(e) => setInvoiceHeaderTextColor(e.target.value)}
-                    className="flex-1"
-                    data-testid="input-header-text-color-text"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="setting-accent-color">Accent / Table Header</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    id="setting-accent-color"
-                    value={invoiceAccentColor}
-                    onChange={(e) => setInvoiceAccentColor(e.target.value)}
-                    className="w-9 h-9 rounded-md border cursor-pointer flex-shrink-0"
-                    data-testid="input-accent-color"
-                  />
-                  <Input
-                    value={invoiceAccentColor}
-                    onChange={(e) => setInvoiceAccentColor(e.target.value)}
-                    className="flex-1"
-                    data-testid="input-accent-color-text"
-                  />
-                </div>
               </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label>Font Style</Label>
-              <Select value={invoiceFontFamily} onValueChange={setInvoiceFontFamily}>
-                <SelectTrigger data-testid="select-font-family">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FONT_OPTIONS.map((f) => (
-                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <ImageUploader
-              label="Clinic Logo"
-              currentUrl={clinicLogoUrl}
-              onUploaded={(url) => setClinicLogoUrl(url)}
-              onRemoved={() => setClinicLogoUrl("")}
-              testIdPrefix="upload-clinic-logo"
-              settingKey="clinicLogoUrl"
-            />
-          </div>
-
-          <div className="border rounded-md p-4 bg-muted/30">
-            <p className="text-xs text-muted-foreground mb-2">Preview</p>
-            <div
-              className="rounded-md p-3"
-              style={{ backgroundColor: invoiceHeaderColor, color: invoiceHeaderTextColor }}
-              data-testid="preview-invoice-header"
-            >
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="font-bold text-sm">{clinicName || "Your Clinic Name"}</p>
-                  <p className="text-xs opacity-80">{clinicAddress || "Clinic Address"}</p>
-                </div>
-                <p className="text-lg font-bold opacity-90">INVOICE</p>
-              </div>
-            </div>
-            <div
-              className="rounded-md p-2 mt-1 text-xs font-medium"
-              style={{ backgroundColor: invoiceAccentColor, color: invoiceHeaderTextColor }}
-            >
-              <div className="flex justify-between gap-2">
-                <span>Description of Services</span>
-                <span>Qty</span>
-                <span>Price</span>
-                <span>Total</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              onClick={saveInvoiceDesign}
-              disabled={saveMutation.isPending}
-              data-testid="button-save-invoice-design"
-            >
-              <Save className="w-4 h-4 mr-1" />
-              {saveMutation.isPending ? "Saving..." : "Save Design"}
-            </Button>
           </div>
         </CardContent>
       </Card>

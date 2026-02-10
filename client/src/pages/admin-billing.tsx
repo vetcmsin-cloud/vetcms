@@ -567,9 +567,45 @@ function ViewInvoiceDialog({
   const gstNumber = clinicSettings?.gstNumber || "";
   const regNumber = clinicSettings?.registrationNumber || "";
   const clinicLogoUrl = clinicSettings?.clinicLogoUrl || "";
+  const invoiceTitle = clinicSettings?.invoiceTitle || "INVOICE";
+  const logoPosition = clinicSettings?.invoiceLogoPosition || "left";
+  const logoSizeSetting = clinicSettings?.invoiceLogoSize || "medium";
+  const logoPx = logoSizeSetting === "small" ? 36 : logoSizeSetting === "large" ? 72 : 48;
+  const tableStyle = clinicSettings?.invoiceTableStyle || "striped";
+  const totalBgHeader = clinicSettings?.invoiceTotalBgHeader !== "false";
+  const showGst = clinicSettings?.invoiceShowGst !== "false";
+  const showRegNumber = clinicSettings?.invoiceShowRegNumber !== "false";
+  const showClinicPhone = clinicSettings?.invoiceShowClinicPhone !== "false";
+  const showClinicEmail = clinicSettings?.invoiceShowClinicEmail !== "false";
+  const showTerms = clinicSettings?.invoiceShowTerms !== "false";
+  const showNotes = clinicSettings?.invoiceShowNotes !== "false";
+  const showFooter = clinicSettings?.invoiceShowFooter !== "false";
+  const showUpiQr = clinicSettings?.invoiceShowUpiQr !== "false";
+  const showPatientInfo = clinicSettings?.invoiceShowPatientInfo !== "false";
+  const showDueDate = clinicSettings?.invoiceShowDueDate !== "false";
+  const colDescription = clinicSettings?.invoiceColDescription || "Description of Services";
+  const colQuantity = clinicSettings?.invoiceColQuantity || "Qty";
+  const colPrice = clinicSettings?.invoiceColPrice || "Price";
+  const colTotal = clinicSettings?.invoiceColTotal || "Total";
+  const tableBorderClass = tableStyle === "bordered" ? "border" : tableStyle === "minimal" ? "" : "border";
+  const getRowClass = (idx: number) => {
+    if (tableStyle === "striped") return idx % 2 === 0 ? "bg-muted/20" : "";
+    if (tableStyle === "bordered") return "border-b";
+    return "";
+  };
 
   const totalNum = parseFloat(String(inv.total)) || 0;
   const upiUrl = upiId ? buildUpiUrl(upiId, upiPayeeName, totalNum) : "";
+
+  const logoElement = clinicLogoUrl ? (
+    <img
+      src={clinicLogoUrl}
+      alt="Clinic Logo"
+      className="rounded-md object-contain bg-white/20 p-1"
+      style={{ width: logoPx, height: logoPx }}
+      data-testid="img-clinic-logo"
+    />
+  ) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -638,35 +674,48 @@ function ViewInvoiceDialog({
                 style={{ backgroundColor: headerColor, color: headerTextColor }}
                 data-testid="invoice-header"
               >
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="flex items-start gap-3">
-                    {clinicLogoUrl && (
-                      <img
-                        src={clinicLogoUrl}
-                        alt="Clinic Logo"
-                        className="w-12 h-12 rounded-md object-contain bg-white/20 p-1"
-                        data-testid="img-clinic-logo"
-                      />
-                    )}
+                {logoPosition === "center" ? (
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    {logoElement}
                     <div>
-                      <h2 className="text-xl font-bold" data-testid="text-clinic-name">
-                        {clinicName}
-                      </h2>
-                      {clinicAddress && (
-                        <p className="text-sm opacity-85 mt-0.5">{clinicAddress}</p>
-                      )}
-                      <div className="flex flex-col gap-0.5 mt-1">
-                        {clinicPhone && <p className="text-xs opacity-75">{clinicPhone}</p>}
-                        {clinicEmail && <p className="text-xs opacity-75">{clinicEmail}</p>}
+                      <h2 className="text-xl font-bold" data-testid="text-clinic-name">{clinicName}</h2>
+                      {clinicAddress && <p className="text-sm opacity-85 mt-0.5">{clinicAddress}</p>}
+                      <div className="flex items-center gap-3 justify-center mt-1 flex-wrap">
+                        {showClinicPhone && clinicPhone && <span className="text-xs opacity-75">{clinicPhone}</span>}
+                        {showClinicEmail && clinicEmail && <span className="text-xs opacity-75">{clinicEmail}</span>}
+                      </div>
+                    </div>
+                    <p className="text-2xl font-bold tracking-wide opacity-90 mt-1">{invoiceTitle}</p>
+                    <div className="flex items-center gap-3 justify-center flex-wrap">
+                      {showGst && gstNumber && <span className="text-xs opacity-70">GST: {gstNumber}</span>}
+                      {showRegNumber && regNumber && <span className="text-xs opacity-70">Reg: {regNumber}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className={`flex items-start gap-3 ${logoPosition === "right" ? "order-2" : ""}`}>
+                      {logoPosition === "left" && logoElement}
+                      <div>
+                        <h2 className="text-xl font-bold" data-testid="text-clinic-name">{clinicName}</h2>
+                        {clinicAddress && <p className="text-sm opacity-85 mt-0.5">{clinicAddress}</p>}
+                        <div className="flex flex-col gap-0.5 mt-1">
+                          {showClinicPhone && clinicPhone && <p className="text-xs opacity-75">{clinicPhone}</p>}
+                          {showClinicEmail && clinicEmail && <p className="text-xs opacity-75">{clinicEmail}</p>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={`${logoPosition === "right" ? "order-1" : "text-right"}`}>
+                      <div className={`flex items-start gap-3 ${logoPosition === "right" ? "" : "justify-end"}`}>
+                        <div>
+                          <p className="text-2xl font-bold tracking-wide opacity-90">{invoiceTitle}</p>
+                          {showGst && gstNumber && <p className="text-xs opacity-70 mt-1">GST: {gstNumber}</p>}
+                          {showRegNumber && regNumber && <p className="text-xs opacity-70">Reg: {regNumber}</p>}
+                        </div>
+                        {logoPosition === "right" && logoElement}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-2xl font-bold tracking-wide opacity-90">INVOICE</p>
-                    {gstNumber && <p className="text-xs opacity-70 mt-1">GST: {gstNumber}</p>}
-                    {regNumber && <p className="text-xs opacity-70">Reg: {regNumber}</p>}
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="p-6">
@@ -681,7 +730,7 @@ function ViewInvoiceDialog({
                     {owner?.address && <p className="text-sm text-muted-foreground">{owner.address}</p>}
                     {owner?.phone && <p className="text-sm text-muted-foreground">{owner.phone}</p>}
                     {owner?.email && <p className="text-sm text-muted-foreground">{owner.email}</p>}
-                    {pet && (
+                    {showPatientInfo && pet && (
                       <p className="text-sm mt-1" data-testid="text-invoice-pet">
                         <span className="text-muted-foreground">Patient:</span>{" "}
                         <span className="font-medium">{pet.name}</span>{" "}
@@ -701,7 +750,7 @@ function ViewInvoiceDialog({
                           {inv.invoiceNumber}
                         </p>
                       </div>
-                      {inv.dueDate && (
+                      {showDueDate && inv.dueDate && (
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Due Date</p>
                           <p className="font-medium">{formatDateDisplay(inv.dueDate)}</p>
@@ -711,26 +760,26 @@ function ViewInvoiceDialog({
                   </div>
                 </div>
 
-                <div className="rounded-md overflow-hidden border mb-6">
+                <div className={`rounded-md overflow-hidden ${tableBorderClass} mb-6`}>
                   <table className="w-full text-sm" data-testid="table-invoice-items">
                     <thead>
                       <tr style={{ backgroundColor: accentColor, color: headerTextColor }}>
-                        <th className="text-left p-3 font-semibold">Description of Services</th>
-                        <th className="text-center p-3 font-semibold w-16">Qty</th>
-                        <th className="text-right p-3 font-semibold w-24">Price</th>
-                        <th className="text-right p-3 font-semibold w-24">Total</th>
+                        <th className="text-left p-3 font-semibold">{colDescription}</th>
+                        <th className="text-center p-3 font-semibold w-16">{colQuantity}</th>
+                        <th className="text-right p-3 font-semibold w-24">{colPrice}</th>
+                        <th className="text-right p-3 font-semibold w-24">{colTotal}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {inv.items?.map((item, idx) => (
                         <tr
                           key={item.id || idx}
-                          className={idx % 2 === 0 ? "bg-muted/20" : ""}
+                          className={getRowClass(idx)}
                           data-testid={`row-invoice-item-${idx}`}
                         >
-                          <td className="p-3" data-testid={`text-item-desc-${idx}`}>{item.description}</td>
-                          <td className="text-center p-3">{item.quantity}</td>
-                          <td className="text-right p-3">{formatCurrency(item.unitPrice)}</td>
+                          <td className={`p-3 ${tableStyle === "bordered" ? "border-r" : ""}`} data-testid={`text-item-desc-${idx}`}>{item.description}</td>
+                          <td className={`text-center p-3 ${tableStyle === "bordered" ? "border-r" : ""}`}>{item.quantity}</td>
+                          <td className={`text-right p-3 ${tableStyle === "bordered" ? "border-r" : ""}`}>{formatCurrency(item.unitPrice)}</td>
                           <td className="text-right p-3 font-medium">{formatCurrency(item.total)}</td>
                         </tr>
                       ))}
@@ -765,7 +814,10 @@ function ViewInvoiceDialog({
                     )}
                     <div
                       className="flex justify-between gap-4 py-2 mt-1 rounded-md px-3 -mx-3"
-                      style={{ backgroundColor: headerColor, color: headerTextColor }}
+                      style={totalBgHeader
+                        ? { backgroundColor: headerColor, color: headerTextColor }
+                        : { backgroundColor: accentColor, color: headerTextColor }
+                      }
                     >
                       <span className="font-bold">Total</span>
                       <span className="font-bold text-base" data-testid="text-print-total">{formatCurrency(inv.total)}</span>
@@ -773,7 +825,7 @@ function ViewInvoiceDialog({
                   </div>
                 </div>
 
-                {inv.notes && (
+                {showNotes && inv.notes && (
                   <div className="mb-4 p-3 rounded-md bg-muted/30">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Notes</p>
                     <p className="text-sm" data-testid="text-invoice-notes">{inv.notes}</p>
@@ -786,8 +838,8 @@ function ViewInvoiceDialog({
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Payment Information</p>
                         {clinicAddress && <p className="text-xs text-muted-foreground">{clinicAddress}</p>}
-                        {clinicPhone && <p className="text-xs text-muted-foreground">{clinicPhone}</p>}
-                        {clinicEmail && <p className="text-xs text-muted-foreground">{clinicEmail}</p>}
+                        {showClinicPhone && clinicPhone && <p className="text-xs text-muted-foreground">{clinicPhone}</p>}
+                        {showClinicEmail && clinicEmail && <p className="text-xs text-muted-foreground">{clinicEmail}</p>}
                       </div>
                       {upiId && (
                         <div className="mt-1">
@@ -802,7 +854,7 @@ function ViewInvoiceDialog({
                         </div>
                       )}
 
-                      {clinicSettings?.termsConditions && (
+                      {showTerms && clinicSettings?.termsConditions && (
                         <div className="mt-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Terms & Conditions</p>
                           <p className="text-xs text-muted-foreground whitespace-pre-line">{clinicSettings.termsConditions}</p>
@@ -810,7 +862,7 @@ function ViewInvoiceDialog({
                       )}
                     </div>
 
-                    {upiId && totalNum > 0 && (
+                    {showUpiQr && upiId && totalNum > 0 && (
                       <div className="flex flex-col items-center gap-1.5" data-testid="invoice-qr-section">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scan to Pay</p>
                         <div className="invoice-qr p-2 bg-white rounded-md border" data-testid="invoice-qr-code">
@@ -830,7 +882,7 @@ function ViewInvoiceDialog({
                   </div>
                 </div>
 
-                {clinicSettings?.footerText && (
+                {showFooter && clinicSettings?.footerText && (
                   <div className="mt-4 pt-3 border-t text-center">
                     <p className="text-sm font-medium" style={{ color: headerColor }} data-testid="text-invoice-footer">
                       {clinicSettings.footerText}
