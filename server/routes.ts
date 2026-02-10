@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import express, { type Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
 import {
@@ -7,11 +7,62 @@ import {
   insertFeeStructureSchema, insertInvoiceSchema, insertInvoiceItemSchema,
 } from "@shared/schema";
 import { hashPassword, comparePassword, requireAuth, requireAdmin, requireRole, requirePermission } from "./auth";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+const uploadsDir = path.resolve(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const fileStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    cb(null, name);
+  },
+});
+
+const upload = multer({
+  storage: fileStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  app.use("/uploads", express.static(uploadsDir));
+
+  app.post("/api/upload", requireAuth, requirePermission("admin_dashboard.view"), upload.single("file"), (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const url = `/uploads/${req.file.filename}`;
+    res.json({ url, filename: req.file.filename });
+  });
+
+  app.delete("/api/upload/:filename", requireAuth, requirePermission("admin_dashboard.view"), (req, res) => {
+    const filename = req.params.filename;
+    if (filename.includes("..") || filename.includes("/")) {
+      return res.status(400).json({ message: "Invalid filename" });
+    }
+    const filePath = path.join(uploadsDir, filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    res.json({ message: "File deleted" });
+  });
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {
