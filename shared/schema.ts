@@ -1,7 +1,15 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, date, decimal, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, decimal } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  role: text("role").notNull().default("receptionist"),
+});
 
 export const owners = pgTable("owners", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -47,11 +55,14 @@ export const medicalRecords = pgTable("medical_records", {
   notes: text("notes"),
 });
 
-export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true });
-export const insertPetSchema = createInsertSchema(pets).omit({ id: true });
-export const insertAppointmentSchema = createInsertSchema(appointments).omit({ id: true });
-export const insertMedicalRecordSchema = createInsertSchema(medicalRecords).omit({ id: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true as const });
+export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true as const });
+export const insertPetSchema = createInsertSchema(pets).omit({ id: true as const });
+export const insertAppointmentSchema = createInsertSchema(appointments).omit({ id: true as const });
+export const insertMedicalRecordSchema = createInsertSchema(medicalRecords).omit({ id: true as const });
 
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Owner = typeof owners.$inferSelect;
 export type InsertOwner = z.infer<typeof insertOwnerSchema>;
 export type Pet = typeof pets.$inferSelect;

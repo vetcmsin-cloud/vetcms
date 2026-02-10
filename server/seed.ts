@@ -1,8 +1,37 @@
 import { db } from "./db";
-import { owners, pets, appointments, medicalRecords } from "@shared/schema";
+import { owners, pets, appointments, medicalRecords, users } from "@shared/schema";
 import { log } from "./index";
+import { hashPassword } from "./auth";
 
 export async function seedDatabase() {
+  const existingUsers = await db.select().from(users);
+  if (existingUsers.length === 0) {
+    log("Creating default admin user...", "seed");
+    const hashedPw = await hashPassword("admin123");
+    await db.insert(users).values({
+      name: "Super Admin",
+      email: "admin@petpointvet.in",
+      password: hashedPw,
+      role: "superadmin",
+    });
+
+    const hashedDocPw = await hashPassword("doctor123");
+    await db.insert(users).values({
+      name: "Dr. Varsha",
+      email: "varsha@petpointvet.in",
+      password: hashedDocPw,
+      role: "doctor",
+    });
+
+    const hashedRecPw = await hashPassword("reception123");
+    await db.insert(users).values({
+      name: "Receptionist User",
+      email: "rec@petpointvet.in",
+      password: hashedRecPw,
+      role: "receptionist",
+    });
+  }
+
   const existingOwners = await db.select().from(owners);
   if (existingOwners.length > 0) {
     log("Database already seeded, skipping...", "seed");

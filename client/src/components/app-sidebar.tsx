@@ -6,6 +6,8 @@ import {
   CalendarDays,
   FileText,
   Stethoscope,
+  Shield,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -19,17 +21,38 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 
 const mainNav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Patients", url: "/patients", icon: PawPrint },
-  { title: "Owners", url: "/owners", icon: Users },
-  { title: "Appointments", url: "/appointments", icon: CalendarDays },
-  { title: "Medical Records", url: "/records", icon: FileText },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, roles: ["superadmin", "doctor", "receptionist"] },
+  { title: "Patients", url: "/patients", icon: PawPrint, roles: ["superadmin", "doctor", "receptionist"] },
+  { title: "Owners", url: "/owners", icon: Users, roles: ["superadmin", "doctor", "receptionist"] },
+  { title: "Appointments", url: "/appointments", icon: CalendarDays, roles: ["superadmin", "doctor", "receptionist"] },
+  { title: "Medical Records", url: "/records", icon: FileText, roles: ["superadmin", "doctor"] },
 ];
+
+const adminNav = [
+  { title: "User Management", url: "/users", icon: Shield, roles: ["superadmin"] },
+];
+
+function roleLabel(role: string) {
+  switch (role) {
+    case "superadmin": return "Admin";
+    case "doctor": return "Doctor";
+    case "receptionist": return "Receptionist";
+    default: return role;
+  }
+}
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
+
+  const visibleMain = mainNav.filter((item) => user && item.roles.includes(user.role));
+  const visibleAdmin = adminNav.filter((item) => user && item.roles.includes(user.role));
 
   return (
     <Sidebar>
@@ -51,7 +74,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNav.map((item) => {
+              {visibleMain.map((item) => {
                 const isActive =
                   item.url === "/"
                     ? location === "/"
@@ -74,11 +97,56 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {visibleAdmin.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleAdmin.map((item) => {
+                  const isActive = location.startsWith(item.url);
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        <Link href={item.url}>
+                          <item.icon className="w-4 h-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <div className="text-[11px] text-muted-foreground">
-          PetPoint Pro v1.0
-        </div>
+      <SidebarFooter className="p-3">
+        {user && (
+          <div className="flex items-center gap-3 p-2 rounded-md bg-sidebar-accent/50">
+            <Avatar className="w-8 h-8">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                {user.name.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="text-xs font-medium truncate">{user.name}</span>
+              <Badge variant="outline" className="text-[9px] w-fit">{roleLabel(user.role)}</Badge>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => logout.mutate()}
+              data-testid="button-logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
