@@ -8,8 +8,9 @@ import {
   type FeeStructure, type InsertFeeStructure,
   type Invoice, type InsertInvoice,
   type InvoiceItem, type InsertInvoiceItem,
+  type ClinicSetting,
   owners, pets, appointments, medicalRecords, users,
-  roles, feeStructures, invoices, invoiceItems,
+  roles, feeStructures, invoices, invoiceItems, clinicSettings,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -71,6 +72,11 @@ export interface IStorage {
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   deleteInvoiceItem(id: number): Promise<void>;
   deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void>;
+
+  getClinicSettings(): Promise<ClinicSetting[]>;
+  getClinicSetting(key: string): Promise<ClinicSetting | undefined>;
+  upsertClinicSetting(key: string, value: string): Promise<ClinicSetting>;
+  upsertClinicSettings(settings: { key: string; value: string }[]): Promise<ClinicSetting[]>;
 
   eraseAllMedicalRecords(): Promise<number>;
   eraseAllAppointments(): Promise<number>;
@@ -300,6 +306,36 @@ export class DatabaseStorage implements IStorage {
 
   async deleteInvoiceItemsByInvoice(invoiceId: number): Promise<void> {
     await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoiceId));
+  }
+
+  async getClinicSettings(): Promise<ClinicSetting[]> {
+    return db.select().from(clinicSettings);
+  }
+
+  async getClinicSetting(key: string): Promise<ClinicSetting | undefined> {
+    const [setting] = await db.select().from(clinicSettings).where(eq(clinicSettings.settingKey, key));
+    return setting;
+  }
+
+  async upsertClinicSetting(key: string, value: string): Promise<ClinicSetting> {
+    const [result] = await db
+      .insert(clinicSettings)
+      .values({ settingKey: key, settingValue: value })
+      .onConflictDoUpdate({
+        target: clinicSettings.settingKey,
+        set: { settingValue: value },
+      })
+      .returning();
+    return result;
+  }
+
+  async upsertClinicSettings(settings: { key: string; value: string }[]): Promise<ClinicSetting[]> {
+    const results: ClinicSetting[] = [];
+    for (const s of settings) {
+      const result = await this.upsertClinicSetting(s.key, s.value);
+      results.push(result);
+    }
+    return results;
   }
 
   async eraseAllMedicalRecords(): Promise<number> {

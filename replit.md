@@ -98,7 +98,8 @@ shared/
 5. **Appointments**: Schedule, filter by status, complete/cancel appointments
 6. **Medical Records**: Add diagnoses, treatments, prescriptions with accordion-style view
 7. **User Management**: Admin-only CRUD for staff accounts with role assignment
-8. **Login**: Email/password authentication with demo credentials display
+8. **Login**: Email/password authentication with demo credentials display, dynamic background from clinic settings
+9. **Clinic Settings** (Admin): Configure invoice printer type (Thermal 58mm/80mm, A5, A4), clinic info for bills (name, address, phone, email, GST, registration, footer, terms), and login screen background
 
 ## API Endpoints
 ### Auth
@@ -120,8 +121,12 @@ shared/
 - `GET/POST /api/medical-records` - List/Create medical records (doctor/admin only)
 - `GET/DELETE /api/medical-records/:id` - Get/Delete medical record (doctor/admin only)
 
+### Clinic Settings
+- `GET /api/clinic-settings` - Get all settings (public, no auth needed for login bg)
+- `PATCH /api/clinic-settings` - Update settings (admin only, key-value pairs)
+
 ## Database
-PostgreSQL with tables: users, owners, pets, appointments, medical_records
+PostgreSQL with tables: users, owners, pets, appointments, medical_records, clinic_settings
 Database is seeded with sample data and default users on first startup.
 
 ## Running

@@ -415,6 +415,51 @@ function CreateInvoiceDialog() {
   );
 }
 
+type ClinicSettingsMap = Record<string, string>;
+
+function getPrintStyles(printerType: string) {
+  switch (printerType) {
+    case "thermal_58mm":
+      return `
+        @media print {
+          @page { size: 58mm auto; margin: 2mm; }
+          body { font-size: 9px !important; }
+          .no-print { display: none !important; }
+          .invoice-container { padding: 2mm !important; border: none !important; }
+          .invoice-container h2 { font-size: 12px !important; }
+          .invoice-container table { font-size: 9px !important; }
+        }
+      `;
+    case "thermal_80mm":
+      return `
+        @media print {
+          @page { size: 80mm auto; margin: 3mm; }
+          body { font-size: 10px !important; }
+          .no-print { display: none !important; }
+          .invoice-container { padding: 3mm !important; border: none !important; }
+          .invoice-container h2 { font-size: 13px !important; }
+          .invoice-container table { font-size: 10px !important; }
+        }
+      `;
+    case "a5":
+      return `
+        @media print {
+          @page { size: A5; margin: 10mm; }
+          .no-print { display: none !important; }
+          .invoice-container { border: none !important; }
+        }
+      `;
+    default:
+      return `
+        @media print {
+          @page { size: A4; margin: 15mm; }
+          .no-print { display: none !important; }
+          .invoice-container { border: none !important; }
+        }
+      `;
+  }
+}
+
 function ViewInvoiceDialog({
   invoice,
   owners,
@@ -435,6 +480,10 @@ function ViewInvoiceDialog({
   const { data: fullInvoice, isLoading } = useQuery<InvoiceWithMeta>({
     queryKey: ["/api/invoices", invoice.id],
     enabled: open,
+  });
+
+  const { data: clinicSettings } = useQuery<ClinicSettingsMap>({
+    queryKey: ["/api/clinic-settings"],
   });
 
   const statusMutation = useMutation({
@@ -459,7 +508,7 @@ function ViewInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <style>{`@media print { .no-print { display: none !important; } }`}</style>
+        <style>{getPrintStyles(clinicSettings?.printerType || "a4")}</style>
         <DialogHeader className="no-print">
           <DialogTitle>Invoice Details</DialogTitle>
           <DialogDescription>View and print invoice details.</DialogDescription>
@@ -500,11 +549,26 @@ function ViewInvoiceDialog({
               </Button>
             </div>
 
-            <div className="border rounded-md p-6">
+            <div className="border rounded-md p-6 invoice-container">
               <div className="flex flex-col gap-1 mb-6 text-center">
-                <h2 className="text-xl font-bold" data-testid="text-clinic-name">PetPoint Pro Veterinary Clinic</h2>
-                <p className="text-sm text-muted-foreground">123 Pet Care Lane, Bangalore, Karnataka 560001</p>
-                <p className="text-sm text-muted-foreground">Phone: +91 80 1234 5678</p>
+                <h2 className="text-xl font-bold" data-testid="text-clinic-name">
+                  {clinicSettings?.clinicName || "PetPoint Pro Veterinary Clinic"}
+                </h2>
+                {clinicSettings?.clinicAddress && (
+                  <p className="text-sm text-muted-foreground">{clinicSettings.clinicAddress}</p>
+                )}
+                {clinicSettings?.clinicPhone && (
+                  <p className="text-sm text-muted-foreground">Phone: {clinicSettings.clinicPhone}</p>
+                )}
+                {clinicSettings?.clinicEmail && (
+                  <p className="text-sm text-muted-foreground">Email: {clinicSettings.clinicEmail}</p>
+                )}
+                {clinicSettings?.gstNumber && (
+                  <p className="text-sm text-muted-foreground">GST: {clinicSettings.gstNumber}</p>
+                )}
+                {clinicSettings?.registrationNumber && (
+                  <p className="text-sm text-muted-foreground">Reg: {clinicSettings.registrationNumber}</p>
+                )}
               </div>
 
               <div className="border-t pt-4 flex justify-between gap-4 flex-wrap">
@@ -585,6 +649,21 @@ function ViewInvoiceDialog({
                 <div className="mt-4 pt-4 border-t">
                   <span className="text-xs text-muted-foreground">NOTES</span>
                   <p className="text-sm mt-1" data-testid="text-invoice-notes">{inv.notes}</p>
+                </div>
+              )}
+
+              {clinicSettings?.termsConditions && (
+                <div className="mt-4 pt-4 border-t">
+                  <span className="text-xs text-muted-foreground">TERMS & CONDITIONS</span>
+                  <p className="text-xs mt-1 text-muted-foreground whitespace-pre-line">{clinicSettings.termsConditions}</p>
+                </div>
+              )}
+
+              {clinicSettings?.footerText && (
+                <div className="mt-4 pt-4 border-t text-center">
+                  <p className="text-xs text-muted-foreground italic" data-testid="text-invoice-footer">
+                    {clinicSettings.footerText}
+                  </p>
                 </div>
               )}
             </div>

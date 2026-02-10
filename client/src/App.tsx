@@ -24,6 +24,7 @@ import AdminBilling from "@/pages/admin-billing";
 import AdminRoles from "@/pages/admin-roles";
 import AdminUserRights from "@/pages/admin-user-rights";
 import AdminData from "@/pages/admin-data";
+import AdminSettings from "@/pages/admin-settings";
 
 function Router() {
   const { hasPermission } = useAuth();
@@ -49,6 +50,7 @@ function Router() {
           <Route path="/admin/fees" component={AdminFees} />
           <Route path="/admin/roles" component={AdminRoles} />
           <Route path="/admin/user-rights" component={AdminUserRights} />
+          <Route path="/admin/settings" component={AdminSettings} />
           <Route path="/admin/data" component={AdminData} />
         </>
       )}

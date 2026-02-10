@@ -114,6 +114,14 @@ export const insertFeeStructureSchema = createInsertSchema(feeStructures).omit({
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true as const });
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true as const });
 
+export const clinicSettings = pgTable("clinic_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  settingKey: text("setting_key").notNull().unique(),
+  settingValue: text("setting_value").notNull().default(""),
+});
+
+export const insertClinicSettingSchema = createInsertSchema(clinicSettings).omit({ id: true as const });
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Owner = typeof owners.$inferSelect;
@@ -132,6 +140,8 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
+export type ClinicSetting = typeof clinicSettings.$inferSelect;
+export type InsertClinicSetting = z.infer<typeof insertClinicSettingSchema>;
 
 export const ALL_PERMISSIONS = [
   "dashboard.view",

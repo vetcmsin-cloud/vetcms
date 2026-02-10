@@ -245,6 +245,29 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // Clinic Settings
+  app.get("/api/clinic-settings", async (_req, res) => {
+    const settings = await storage.getClinicSettings();
+    const map: Record<string, string> = {};
+    for (const s of settings) {
+      map[s.settingKey] = s.settingValue;
+    }
+    res.json(map);
+  });
+
+  app.patch("/api/clinic-settings", requireAuth, requirePermission("admin_dashboard.view"), async (req, res) => {
+    const body = req.body as Record<string, string>;
+    const entries = Object.entries(body).map(([key, value]) => ({ key, value: String(value) }));
+    if (entries.length === 0) return res.status(400).json({ message: "No settings provided" });
+    await storage.upsertClinicSettings(entries);
+    const allSettings = await storage.getClinicSettings();
+    const map: Record<string, string> = {};
+    for (const s of allSettings) {
+      map[s.settingKey] = s.settingValue;
+    }
+    res.json(map);
+  });
+
   // Backup Export (permission-based)
   app.get("/api/backup/export", requireAuth, requirePermission("backup.export"), async (_req, res) => {
     const [allOwners, allPets, allAppointments, allRecords, allFees, allInvoices, allRoles] = await Promise.all([

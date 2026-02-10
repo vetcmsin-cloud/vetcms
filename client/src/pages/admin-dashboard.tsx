@@ -8,6 +8,7 @@ import {
   UserCog,
   Settings,
   Trash2,
+  Wrench,
 } from "lucide-react";
 
 const adminCards = [
@@ -45,6 +46,13 @@ const adminCards = [
     icon: UserCog,
     url: "/admin/user-rights",
     testId: "card-user-rights",
+  },
+  {
+    title: "Clinic Settings",
+    description: "Invoice design, clinic details, and login screen customization",
+    icon: Wrench,
+    url: "/admin/settings",
+    testId: "card-settings",
   },
   {
     title: "Data Management",

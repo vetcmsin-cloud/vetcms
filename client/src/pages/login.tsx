@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,12 +9,18 @@ import { useAuth } from "@/hooks/use-auth";
 import { LogIn, Eye, EyeOff } from "lucide-react";
 import logoImg from "@assets/Untitled_design_(2)_-_Copy_1770707768689.png";
 
+type ClinicSettings = Record<string, string>;
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const { toast } = useToast();
+  const { data: settings } = useQuery<ClinicSettings>({ queryKey: ["/api/clinic-settings"] });
+
+  const bgUrl = settings?.loginBackgroundUrl || "";
+  const bgColor = settings?.loginBackgroundColor || "";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,9 +34,24 @@ export default function Login() {
     );
   };
 
+  const containerStyle: React.CSSProperties = {};
+  if (bgUrl) {
+    containerStyle.backgroundImage = `url(${bgUrl})`;
+    containerStyle.backgroundSize = "cover";
+    containerStyle.backgroundPosition = "center";
+    containerStyle.backgroundRepeat = "no-repeat";
+  } else if (bgColor) {
+    containerStyle.backgroundColor = bgColor;
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4" data-testid="page-login">
-      <Card className="w-full max-w-sm">
+    <div
+      className={`min-h-screen flex items-center justify-center p-4 relative ${!bgUrl && !bgColor ? "bg-background" : ""}`}
+      style={containerStyle}
+      data-testid="page-login"
+    >
+      {bgUrl && <div className="absolute inset-0 bg-black/40" />}
+      <Card className="w-full max-w-sm relative z-10">
         <CardHeader className="text-center pb-2">
           <div className="flex items-center justify-center mb-4">
             <img src={logoImg} alt="PetPoint Pro" className="w-12 h-12 rounded-md object-cover" />
