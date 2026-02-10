@@ -30,7 +30,6 @@ import { useAuth } from "@/hooks/use-auth";
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permissions: ["dashboard.view"] },
   { title: "Patients", url: "/patients", icon: PawPrint, permissions: ["patients.view", "patients.manage"] },
-  { title: "Owners", url: "/owners", icon: Users, permissions: ["owners.view", "owners.manage"] },
   { title: "Appointments", url: "/appointments", icon: CalendarDays, permissions: ["appointments.view", "appointments.manage"] },
   { title: "Medical Records", url: "/records", icon: FileText, permissions: ["medical_records.view", "medical_records.manage"] },
 ];

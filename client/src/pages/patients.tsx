@@ -28,12 +28,13 @@ import { PatientChart } from "@/components/patient-chart";
 import { Plus, Search, PawPrint, Weight, Calendar } from "lucide-react";
 import type { Pet, Owner } from "@shared/schema";
 
-function AddPetDialog({ owners, open, onOpenChange }: { owners: Owner[]; open?: boolean; onOpenChange?: (v: boolean) => void }) {
+function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open !== undefined ? open : internalOpen;
   const setIsOpen = onOpenChange || setInternalOpen;
   const { toast } = useToast();
-  const [form, setForm] = useState({
+
+  const defaultForm = {
     name: "",
     species: "Dog",
     breed: "",
@@ -42,32 +43,52 @@ function AddPetDialog({ owners, open, onOpenChange }: { owners: Owner[]; open?: 
     gender: "Male",
     color: "",
     microchip: "",
-    ownerId: "",
     imageUrl: "",
-  });
+    ownerFirstName: "",
+    ownerLastName: "",
+    ownerPhone: "",
+    ownerEmail: "",
+    ownerAddress: "",
+  };
+  const [form, setForm] = useState(defaultForm);
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/pets", {
-        ...form,
+      const ownerRes = await apiRequest("POST", "/api/owners", {
+        firstName: form.ownerFirstName,
+        lastName: form.ownerLastName,
+        phone: form.ownerPhone,
+        email: form.ownerEmail,
+        address: form.ownerAddress || undefined,
+      });
+      const owner = await ownerRes.json();
+      const petRes = await apiRequest("POST", "/api/pets", {
+        name: form.name,
+        species: form.species,
+        breed: form.breed,
         age: parseInt(form.age),
         weight: form.weight || undefined,
+        gender: form.gender,
         color: form.color || undefined,
         microchip: form.microchip || undefined,
-        ownerId: parseInt(form.ownerId),
+        ownerId: owner.id,
+        imageUrl: form.imageUrl || undefined,
       });
-      return res.json();
+      return petRes.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
       setIsOpen(false);
-      setForm({ name: "", species: "Dog", breed: "", age: "", weight: "", gender: "Male", color: "", microchip: "", ownerId: "", imageUrl: "" });
-      toast({ title: "Patient added", description: "New patient has been registered successfully." });
+      setForm(defaultForm);
+      toast({ title: "Patient added", description: "New patient and owner have been registered successfully." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const canSubmit = form.name && form.breed && form.age && form.ownerFirstName && form.ownerLastName && form.ownerPhone && form.ownerEmail;
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -181,24 +202,67 @@ function AddPetDialog({ owners, open, onOpenChange }: { owners: Owner[]; open?: 
               />
             </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Owner</Label>
-            <Select value={form.ownerId} onValueChange={(v) => setForm({ ...form, ownerId: v })}>
-              <SelectTrigger data-testid="select-owner">
-                <SelectValue placeholder="Select owner" />
-              </SelectTrigger>
-              <SelectContent>
-                {owners.map((o) => (
-                  <SelectItem key={o.id} value={String(o.id)}>
-                    {o.firstName} {o.lastName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="border-t pt-4 mt-1">
+            <p className="text-sm font-medium mb-3">Owner Information</p>
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="owner-first-name">First Name</Label>
+                  <Input
+                    id="owner-first-name"
+                    placeholder="First name"
+                    value={form.ownerFirstName}
+                    onChange={(e) => setForm({ ...form, ownerFirstName: e.target.value })}
+                    data-testid="input-owner-first-name"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="owner-last-name">Last Name</Label>
+                  <Input
+                    id="owner-last-name"
+                    placeholder="Last name"
+                    value={form.ownerLastName}
+                    onChange={(e) => setForm({ ...form, ownerLastName: e.target.value })}
+                    data-testid="input-owner-last-name"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="owner-phone">Phone</Label>
+                <Input
+                  id="owner-phone"
+                  placeholder="Phone number"
+                  value={form.ownerPhone}
+                  onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })}
+                  data-testid="input-owner-phone"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="owner-email">Email</Label>
+                <Input
+                  id="owner-email"
+                  type="email"
+                  placeholder="Email address"
+                  value={form.ownerEmail}
+                  onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })}
+                  data-testid="input-owner-email"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="owner-address">Address (optional)</Label>
+                <Input
+                  id="owner-address"
+                  placeholder="Address"
+                  value={form.ownerAddress}
+                  onChange={(e) => setForm({ ...form, ownerAddress: e.target.value })}
+                  data-testid="input-owner-address"
+                />
+              </div>
+            </div>
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.name || !form.breed || !form.age || !form.ownerId}
+            disabled={mutation.isPending || !canSubmit}
             data-testid="button-submit-pet"
           >
             {mutation.isPending ? "Adding..." : "Register Patient"}
@@ -526,7 +590,7 @@ export default function Patients() {
             Manage all registered pets and their information.
           </p>
         </div>
-        <AddPetDialog owners={owners || []} />
+        <AddPetDialog />
       </div>
 
       <div className="relative max-w-sm">
