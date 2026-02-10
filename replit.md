@@ -17,17 +17,24 @@ PetPoint Pro is a comprehensive veterinary clinic management application for man
 client/src/
 ├── components/
 │   ├── ui/              # Shadcn UI components
-│   ├── app-sidebar.tsx   # Main navigation sidebar (role-based)
+│   ├── app-sidebar.tsx   # Main navigation sidebar (permission-based)
+│   ├── patient-chart.tsx  # Patient chart panel (Sheet) with 5 tabs
 │   ├── theme-provider.tsx # Dark/light mode provider
 │   └── theme-toggle.tsx  # Theme toggle button
 ├── pages/
 │   ├── dashboard.tsx     # Dashboard with stats overview
-│   ├── patients.tsx      # Pet patient management
+│   ├── patients.tsx      # Pet patient management + patient chart
 │   ├── owners.tsx        # Pet owner management
 │   ├── appointments.tsx  # Appointment scheduling
 │   ├── records.tsx       # Medical records (doctor/admin only)
 │   ├── login.tsx         # Login page
 │   ├── user-management.tsx # User CRUD (admin only)
+│   ├── admin-dashboard.tsx # Admin hub page
+│   ├── admin-backup.tsx   # Data backup export
+│   ├── admin-fees.tsx     # Fee structure management
+│   ├── admin-billing.tsx  # Billing & invoices
+│   ├── admin-roles.tsx    # Role management
+│   ├── admin-user-rights.tsx # User permissions management
 │   └── not-found.tsx     # 404 page
 ├── hooks/
 │   ├── use-auth.ts       # Auth state management hook
@@ -66,12 +73,17 @@ shared/
 
 ## Key Features
 1. **Dashboard**: Overview stats (patients, owners, appointments), upcoming appointments, recent patients
-2. **Patients**: Register, view, and search pets with species, breed, age, weight
-3. **Owners**: Manage pet owners with contact information
-4. **Appointments**: Schedule, filter by status, complete/cancel appointments
-5. **Medical Records**: Add diagnoses, treatments, prescriptions with accordion-style view
-6. **User Management**: Admin-only CRUD for staff accounts with role assignment
-7. **Login**: Email/password authentication with demo credentials display
+2. **Patients**: Register, view, and search pets with species, breed, age, weight, color, microchip
+3. **Patient Chart**: Slide-in panel with 5 tabs (Patient Info, Owner, History, Documents, Medical Records)
+   - SOAP note form (Subjective, Objective, Assessment, Plan) in Medical Records tab
+   - "Save Record" and "Save & Generate Invoice" buttons
+   - "Save & Generate Invoice" creates a draft invoice and navigates to billing
+   - Book Appointment and Edit Patient actions from the chart
+4. **Owners**: Manage pet owners with contact information
+5. **Appointments**: Schedule, filter by status, complete/cancel appointments
+6. **Medical Records**: Add diagnoses, treatments, prescriptions with accordion-style view
+7. **User Management**: Admin-only CRUD for staff accounts with role assignment
+8. **Login**: Email/password authentication with demo credentials display
 
 ## API Endpoints
 ### Auth

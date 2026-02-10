@@ -29,6 +29,8 @@ export const pets = pgTable("pets", {
   age: integer("age").notNull(),
   weight: decimal("weight", { precision: 5, scale: 2 }),
   gender: text("gender").notNull(),
+  color: text("color"),
+  microchip: text("microchip"),
   imageUrl: text("image_url"),
   ownerId: integer("owner_id").notNull(),
 });
