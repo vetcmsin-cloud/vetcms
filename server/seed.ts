@@ -31,7 +31,7 @@ export async function seedDatabase() {
         "owners.view", "owners.create", "owners.edit",
         "appointments.view", "appointments.create", "appointments.edit",
         "medical_records.view", "medical_records.create", "medical_records.delete",
-        "billing.view",
+        "billing.view", "billing.create",
       ],
       isSystem: "true",
     });

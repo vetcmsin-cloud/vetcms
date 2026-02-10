@@ -39,12 +39,14 @@ function Router() {
       {hasPermission("user_management.view", "user_management.manage") && (
         <Route path="/users" component={UserManagement} />
       )}
+      {hasPermission("billing.view", "billing.manage") && (
+        <Route path="/admin/billing" component={AdminBilling} />
+      )}
       {hasPermission("admin_dashboard.view") && (
         <>
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/backup" component={AdminBackup} />
           <Route path="/admin/fees" component={AdminFees} />
-          <Route path="/admin/billing" component={AdminBilling} />
           <Route path="/admin/roles" component={AdminRoles} />
           <Route path="/admin/user-rights" component={AdminUserRights} />
           <Route path="/admin/data" component={AdminData} />

@@ -134,7 +134,7 @@ export async function registerRoutes(
   });
 
   // Fee Structures (permission-based)
-  app.get("/api/fee-structures", requireAuth, requirePermission("fee_structure.view", "fee_structure.manage", "billing.manage"), async (_req, res) => {
+  app.get("/api/fee-structures", requireAuth, requirePermission("fee_structure.view", "fee_structure.manage", "billing.manage", "billing.view", "billing.create"), async (_req, res) => {
     const fees = await storage.getFeeStructures();
     res.json(fees);
   });
@@ -172,7 +172,7 @@ export async function registerRoutes(
     res.json({ ...invoice, items });
   });
 
-  app.post("/api/invoices", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+  app.post("/api/invoices", requireAuth, requirePermission("billing.manage", "billing.create"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
     const parsed = insertInvoiceSchema.safeParse(invoiceData);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
@@ -192,7 +192,7 @@ export async function registerRoutes(
     res.status(201).json({ ...invoice, items: createdItems });
   });
 
-  app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+  app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.edit"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
     const parsed = insertInvoiceSchema.partial().safeParse(invoiceData);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
@@ -214,7 +214,7 @@ export async function registerRoutes(
     res.json({ ...updated, items: updatedItems });
   });
 
-  app.delete("/api/invoices/:id", requireAuth, requirePermission("billing.manage"), async (req, res) => {
+  app.delete("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.delete"), async (req, res) => {
     await storage.deleteInvoice(parseInt(req.params.id));
     res.status(204).send();
   });

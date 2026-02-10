@@ -585,8 +585,8 @@ export default function AdminBilling() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <Link href="/admin">
-              <Button size="icon" variant="ghost" data-testid="button-back-admin">
+            <Link href="/">
+              <Button size="icon" variant="ghost" data-testid="button-back">
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             </Link>
