@@ -83,34 +83,83 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
+function getCurrentDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function getCurrentTime() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 function AddAppointmentDialog({ pets, owners }: { pets: Pet[]; owners: Owner[] }) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const [patientSearch, setPatientSearch] = useState("");
+  const [selectedPetId, setSelectedPetId] = useState<number | null>(null);
+  const [showRegister, setShowRegister] = useState(false);
   const [form, setForm] = useState({
-    petId: "",
-    ownerId: "",
-    date: "",
-    time: "",
+    date: getCurrentDate(),
+    time: getCurrentTime(),
     type: "Check-up",
-    status: "scheduled",
     notes: "",
   });
+  const [newPatient, setNewPatient] = useState({
+    name: "",
+    species: "Dog",
+    breed: "",
+    age: "",
+    weight: "",
+    gender: "Male",
+    color: "",
+    microchip: "",
+    ownerFirstName: "",
+    ownerLastName: "",
+    ownerPhone: "",
+    ownerEmail: "",
+    ownerAddress: "",
+  });
 
-  const selectedPet = pets.find((p) => p.id === parseInt(form.petId));
+  const resetDialog = () => {
+    setPatientSearch("");
+    setSelectedPetId(null);
+    setShowRegister(false);
+    setForm({ date: getCurrentDate(), time: getCurrentTime(), type: "Check-up", notes: "" });
+    setNewPatient({ name: "", species: "Dog", breed: "", age: "", weight: "", gender: "Male", color: "", microchip: "", ownerFirstName: "", ownerLastName: "", ownerPhone: "", ownerEmail: "", ownerAddress: "" });
+  };
 
-  const mutation = useMutation({
+  const searchResults = patientSearch.trim().length >= 2
+    ? pets.filter((p) => {
+        const q = patientSearch.toLowerCase();
+        const owner = owners.find((o) => o.id === p.ownerId);
+        return (
+          p.name.toLowerCase().includes(q) ||
+          (owner?.phone && owner.phone.includes(patientSearch.trim()))
+        );
+      }).slice(0, 8)
+    : [];
+
+  const selectedPet = pets.find((p) => p.id === selectedPetId);
+  const selectedOwner = selectedPet ? owners.find((o) => o.id === selectedPet.ownerId) : undefined;
+
+  const appointmentMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/appointments", {
-        ...form,
-        petId: parseInt(form.petId),
-        ownerId: selectedPet ? selectedPet.ownerId : parseInt(form.ownerId),
+        petId: selectedPetId,
+        ownerId: selectedPet!.ownerId,
+        date: form.date,
+        time: form.time,
+        type: form.type,
+        status: "scheduled",
+        notes: form.notes || undefined,
       });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       setOpen(false);
-      setForm({ petId: "", ownerId: "", date: "", time: "", type: "Check-up", status: "scheduled", notes: "" });
+      resetDialog();
       toast({ title: "Appointment created", description: "New appointment has been scheduled." });
     },
     onError: (err: Error) => {
@@ -118,34 +167,69 @@ function AddAppointmentDialog({ pets, owners }: { pets: Pet[]; owners: Owner[] }
     },
   });
 
+  const registerAndBookMutation = useMutation({
+    mutationFn: async () => {
+      const ownerRes = await apiRequest("POST", "/api/owners", {
+        firstName: newPatient.ownerFirstName,
+        lastName: newPatient.ownerLastName,
+        phone: newPatient.ownerPhone,
+        email: newPatient.ownerEmail,
+        address: newPatient.ownerAddress || undefined,
+      });
+      const owner = await ownerRes.json();
+      const petRes = await apiRequest("POST", "/api/pets", {
+        name: newPatient.name,
+        species: newPatient.species,
+        breed: newPatient.breed,
+        age: parseInt(newPatient.age),
+        weight: newPatient.weight || undefined,
+        gender: newPatient.gender,
+        color: newPatient.color || undefined,
+        microchip: newPatient.microchip || undefined,
+        ownerId: owner.id,
+      });
+      const pet = await petRes.json();
+      const aptRes = await apiRequest("POST", "/api/appointments", {
+        petId: pet.id,
+        ownerId: owner.id,
+        date: form.date,
+        time: form.time,
+        type: form.type,
+        status: "scheduled",
+        notes: form.notes || undefined,
+      });
+      return aptRes.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      setOpen(false);
+      resetDialog();
+      toast({ title: "Appointment created", description: "Patient registered and appointment scheduled." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const canSubmitExisting = selectedPetId && form.date && form.time;
+  const canSubmitNew = showRegister && newPatient.name && newPatient.breed && newPatient.age && newPatient.ownerFirstName && newPatient.ownerLastName && newPatient.ownerPhone && newPatient.ownerEmail && form.date && form.time;
+  const isPending = appointmentMutation.isPending || registerAndBookMutation.isPending;
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetDialog(); }}>
       <DialogTrigger asChild>
         <Button data-testid="button-add-appointment">
           <Plus className="w-4 h-4 mr-1" />
           New Appointment
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Schedule Appointment</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-4 mt-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>Patient</Label>
-            <Select value={form.petId} onValueChange={(v) => setForm({ ...form, petId: v })}>
-              <SelectTrigger data-testid="select-appointment-pet">
-                <SelectValue placeholder="Select patient" />
-              </SelectTrigger>
-              <SelectContent>
-                {pets.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name} ({p.species})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="apt-date">Date</Label>
@@ -168,6 +252,176 @@ function AddAppointmentDialog({ pets, owners }: { pets: Pet[]; owners: Owner[] }
               />
             </div>
           </div>
+
+          {!selectedPet && !showRegister && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Find Patient</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by pet name or owner phone..."
+                  value={patientSearch}
+                  onChange={(e) => setPatientSearch(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-patient"
+                />
+              </div>
+              {patientSearch.trim().length >= 2 && (
+                <div className="border rounded-md mt-1 max-h-48 overflow-y-auto">
+                  {searchResults.length > 0 ? (
+                    searchResults.map((p) => {
+                      const o = owners.find((ow) => ow.id === p.ownerId);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover-elevate flex items-center justify-between gap-2 border-b last:border-0"
+                          onClick={() => {
+                            setSelectedPetId(p.id);
+                            setPatientSearch("");
+                          }}
+                          data-testid={`search-result-pet-${p.id}`}
+                        >
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium truncate">{p.name} ({p.species})</span>
+                            <span className="text-xs text-muted-foreground truncate">{p.breed}</span>
+                          </div>
+                          {o && (
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {o.firstName} {o.lastName} - {o.phone}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3 py-3 text-sm text-muted-foreground text-center">
+                      <p>No patients found</p>
+                      <Button
+                        variant="ghost"
+                        className="mt-1 h-auto text-sm text-primary underline"
+                        onClick={() => setShowRegister(true)}
+                        data-testid="button-register-new-patient"
+                      >
+                        Register new patient
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {selectedPet && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Patient</Label>
+              <div className="flex items-center justify-between gap-2 border rounded-md px-3 py-2">
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium">{selectedPet.name} ({selectedPet.species})</span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedPet.breed}
+                    {selectedOwner && ` - Owner: ${selectedOwner.firstName} ${selectedOwner.lastName}`}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedPetId(null)}
+                  data-testid="button-change-patient"
+                >
+                  Change
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {showRegister && (
+            <div className="flex flex-col gap-3 border rounded-md p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Register New Patient</p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowRegister(false)}
+                  data-testid="button-cancel-register"
+                >
+                  Back to search
+                </Button>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-pet-name">Pet Name</Label>
+                <Input id="new-pet-name" placeholder="Pet name" value={newPatient.name} onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })} data-testid="input-new-pet-name" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Species</Label>
+                  <Select value={newPatient.species} onValueChange={(v) => setNewPatient({ ...newPatient, species: v })}>
+                    <SelectTrigger data-testid="select-new-species"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Dog">Dog</SelectItem>
+                      <SelectItem value="Cat">Cat</SelectItem>
+                      <SelectItem value="Bird">Bird</SelectItem>
+                      <SelectItem value="Rabbit">Rabbit</SelectItem>
+                      <SelectItem value="Hamster">Hamster</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Gender</Label>
+                  <Select value={newPatient.gender} onValueChange={(v) => setNewPatient({ ...newPatient, gender: v })}>
+                    <SelectTrigger data-testid="select-new-gender"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-pet-breed">Breed</Label>
+                <Input id="new-pet-breed" placeholder="Breed" value={newPatient.breed} onChange={(e) => setNewPatient({ ...newPatient, breed: e.target.value })} data-testid="input-new-pet-breed" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="new-pet-age">Age (years)</Label>
+                  <Input id="new-pet-age" type="number" placeholder="Age" value={newPatient.age} onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })} data-testid="input-new-pet-age" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="new-pet-weight">Weight (kg)</Label>
+                  <Input id="new-pet-weight" type="number" step="0.1" placeholder="Weight" value={newPatient.weight} onChange={(e) => setNewPatient({ ...newPatient, weight: e.target.value })} data-testid="input-new-pet-weight" />
+                </div>
+              </div>
+              <div className="border-t pt-3 mt-1">
+                <p className="text-sm font-medium mb-2">Owner Information</p>
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="new-owner-fname">First Name</Label>
+                      <Input id="new-owner-fname" placeholder="First name" value={newPatient.ownerFirstName} onChange={(e) => setNewPatient({ ...newPatient, ownerFirstName: e.target.value })} data-testid="input-new-owner-first-name" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="new-owner-lname">Last Name</Label>
+                      <Input id="new-owner-lname" placeholder="Last name" value={newPatient.ownerLastName} onChange={(e) => setNewPatient({ ...newPatient, ownerLastName: e.target.value })} data-testid="input-new-owner-last-name" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="new-owner-phone">Phone</Label>
+                    <Input id="new-owner-phone" placeholder="Phone number" value={newPatient.ownerPhone} onChange={(e) => setNewPatient({ ...newPatient, ownerPhone: e.target.value })} data-testid="input-new-owner-phone" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="new-owner-email">Email</Label>
+                    <Input id="new-owner-email" type="email" placeholder="Email" value={newPatient.ownerEmail} onChange={(e) => setNewPatient({ ...newPatient, ownerEmail: e.target.value })} data-testid="input-new-owner-email" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="new-owner-address">Address (optional)</Label>
+                    <Input id="new-owner-address" placeholder="Address" value={newPatient.ownerAddress} onChange={(e) => setNewPatient({ ...newPatient, ownerAddress: e.target.value })} data-testid="input-new-owner-address" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <Label>Type</Label>
             <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
@@ -193,13 +447,23 @@ function AddAppointmentDialog({ pets, owners }: { pets: Pet[]; owners: Owner[] }
               data-testid="input-appointment-notes"
             />
           </div>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.petId || !form.date || !form.time}
-            data-testid="button-submit-appointment"
-          >
-            {mutation.isPending ? "Scheduling..." : "Schedule Appointment"}
-          </Button>
+          {showRegister ? (
+            <Button
+              onClick={() => registerAndBookMutation.mutate()}
+              disabled={isPending || !canSubmitNew}
+              data-testid="button-submit-appointment"
+            >
+              {isPending ? "Scheduling..." : "Register & Schedule"}
+            </Button>
+          ) : (
+            <Button
+              onClick={() => appointmentMutation.mutate()}
+              disabled={isPending || !canSubmitExisting}
+              data-testid="button-submit-appointment"
+            >
+              {isPending ? "Scheduling..." : "Schedule Appointment"}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
