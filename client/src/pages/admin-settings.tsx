@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings, Printer, Building2, ImageIcon, Save, ArrowLeft, Palette, QrCode } from "lucide-react";
+import { Settings, Printer, Building2, ImageIcon, Save, ArrowLeft, Palette, QrCode, Upload, X, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
 type ClinicSettings = Record<string, string>;
@@ -32,6 +32,145 @@ const FONT_OPTIONS = [
   { value: "serif", label: "Serif (Times)" },
   { value: "mono", label: "Monospace" },
 ];
+
+function ImageUploader({
+  label,
+  currentUrl,
+  onUploaded,
+  onRemoved,
+  testIdPrefix,
+  settingKey,
+}: {
+  label: string;
+  currentUrl: string;
+  onUploaded: (url: string) => void;
+  onRemoved: () => void;
+  testIdPrefix: string;
+  settingKey?: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const { toast } = useToast();
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum file size is 5 MB.", variant: "destructive" });
+      return;
+    }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Upload failed");
+      }
+      const data = await res.json();
+      onUploaded(data.url);
+      if (settingKey) {
+        await fetch("/api/clinic-settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [settingKey]: data.url }),
+          credentials: "include",
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/clinic-settings"] });
+      }
+      toast({ title: "Uploaded", description: `${label} uploaded and saved.` });
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const handleRemove = async () => {
+    if (currentUrl && currentUrl.startsWith("/uploads/")) {
+      const filename = currentUrl.split("/uploads/")[1];
+      try {
+        await fetch(`/api/upload/${filename}`, { method: "DELETE", credentials: "include" });
+      } catch {}
+    }
+    onRemoved();
+    if (settingKey) {
+      await fetch("/api/clinic-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [settingKey]: "" }),
+        credentials: "include",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/clinic-settings"] });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>{label}</Label>
+      {currentUrl ? (
+        <div className="flex items-start gap-3">
+          <img
+            src={currentUrl}
+            alt={label}
+            className="w-24 h-24 rounded-md border object-cover"
+            data-testid={`${testIdPrefix}-preview`}
+          />
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs text-muted-foreground break-all max-w-xs">{currentUrl}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                data-testid={`${testIdPrefix}-change`}
+              >
+                {uploading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Upload className="w-3 h-3 mr-1" />}
+                Change
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRemove}
+                data-testid={`${testIdPrefix}-remove`}
+              >
+                <X className="w-3 h-3 mr-1" />
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-md cursor-pointer hover-elevate"
+          onClick={() => fileRef.current?.click()}
+          data-testid={`${testIdPrefix}-dropzone`}
+        >
+          {uploading ? (
+            <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+          ) : (
+            <Upload className="w-6 h-6 text-muted-foreground" />
+          )}
+          <p className="text-sm text-muted-foreground">
+            {uploading ? "Uploading..." : "Click to upload image"}
+          </p>
+          <p className="text-xs text-muted-foreground">JPG, PNG, GIF, WebP (max 5 MB)</p>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleUpload}
+        data-testid={`${testIdPrefix}-input`}
+      />
+    </div>
+  );
+}
 
 export default function AdminSettings() {
   const { toast } = useToast();
@@ -297,16 +436,14 @@ export default function AdminSettings() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="setting-clinic-logo">Clinic Logo URL</Label>
-              <Input
-                id="setting-clinic-logo"
-                value={clinicLogoUrl}
-                onChange={(e) => setClinicLogoUrl(e.target.value)}
-                placeholder="https://example.com/logo.png"
-                data-testid="input-clinic-logo-url"
-              />
-            </div>
+            <ImageUploader
+              label="Clinic Logo"
+              currentUrl={clinicLogoUrl}
+              onUploaded={(url) => setClinicLogoUrl(url)}
+              onRemoved={() => setClinicLogoUrl("")}
+              testIdPrefix="upload-clinic-logo"
+              settingKey="clinicLogoUrl"
+            />
           </div>
 
           <div className="border rounded-md p-4 bg-muted/30">
@@ -548,19 +685,14 @@ export default function AdminSettings() {
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="setting-login-bg-url">Background Image URL</Label>
-            <Input
-              id="setting-login-bg-url"
-              value={loginBackgroundUrl}
-              onChange={(e) => setLoginBackgroundUrl(e.target.value)}
-              placeholder="https://example.com/background.jpg"
-              data-testid="input-login-bg-url"
-            />
-            <p className="text-xs text-muted-foreground">
-              Paste a URL to an image. Leave empty to use the default background.
-            </p>
-          </div>
+          <ImageUploader
+            label="Background Image"
+            currentUrl={loginBackgroundUrl}
+            onUploaded={(url) => setLoginBackgroundUrl(url)}
+            onRemoved={() => setLoginBackgroundUrl("")}
+            testIdPrefix="upload-login-bg"
+            settingKey="loginBackgroundUrl"
+          />
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="setting-login-bg-color">Background Color (fallback)</Label>
@@ -581,6 +713,9 @@ export default function AdminSettings() {
                 />
               )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Used when no background image is set.
+            </p>
           </div>
 
           {loginBackgroundUrl && (
