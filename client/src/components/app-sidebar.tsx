@@ -5,11 +5,11 @@ import {
   Users,
   CalendarDays,
   FileText,
-  Stethoscope,
   Shield,
   Settings,
   LogOut,
 } from "lucide-react";
+import logoImg from "@assets/Untitled_design_(2)_-_Copy_1770707768689.png";
 import {
   Sidebar,
   SidebarContent,
@@ -60,9 +60,7 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <Link href="/" data-testid="link-logo">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-md bg-primary">
-              <Stethoscope className="w-5 h-5 text-primary-foreground" />
-            </div>
+            <img src={logoImg} alt="PetPoint Pro" className="w-9 h-9 rounded-md object-cover" />
             <div className="flex flex-col">
               <span className="text-sm font-semibold tracking-tight">PetPoint Pro</span>
               <span className="text-[11px] text-muted-foreground">Veterinary Clinic</span>

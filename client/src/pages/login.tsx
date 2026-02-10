@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Stethoscope, LogIn, Eye, EyeOff } from "lucide-react";
+import { LogIn, Eye, EyeOff } from "lucide-react";
+import logoImg from "@assets/Untitled_design_(2)_-_Copy_1770707768689.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -31,9 +32,7 @@ export default function Login() {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center pb-2">
           <div className="flex items-center justify-center mb-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-md bg-primary">
-              <Stethoscope className="w-6 h-6 text-primary-foreground" />
-            </div>
+            <img src={logoImg} alt="PetPoint Pro" className="w-12 h-12 rounded-md object-cover" />
           </div>
           <CardTitle className="text-xl font-bold">PetPoint Pro</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
