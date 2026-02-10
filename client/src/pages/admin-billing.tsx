@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -31,17 +30,42 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Plus, X, Printer, Receipt } from "lucide-react";
-import type { Invoice, InvoiceItem, Owner, Pet, FeeStructure } from "@shared/schema";
+import { Plus, X, Printer, Eye, Forward, Search } from "lucide-react";
+import type { Owner, Pet, FeeStructure } from "@shared/schema";
 
-type InvoiceWithItems = Invoice & { items: InvoiceItem[] };
+type InvoiceWithMeta = {
+  id: number;
+  invoiceNumber: string;
+  ownerId: number;
+  petId: number | null;
+  date: string;
+  dueDate: string | null;
+  status: string;
+  subtotal: string;
+  tax: string;
+  discount: string;
+  total: string;
+  notes: string | null;
+  createdBy: number | null;
+  createdByName: string;
+  clinicName: string | null;
+  clinicAddress: string | null;
+  clinicPhone: string | null;
+  items?: InvoiceItemType[];
+};
+
+type InvoiceItemType = {
+  id: number;
+  invoiceId: number;
+  feeId: number | null;
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  total: string;
+};
 
 interface LineItem {
   feeId: number | null;
@@ -52,16 +76,16 @@ interface LineItem {
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
   switch (status) {
     case "paid":
       return "default";
-    case "sent":
+    case "pending":
       return "secondary";
-    case "draft":
+    case "forwarded":
       return "outline";
     case "cancelled":
       return "destructive";
@@ -70,13 +94,15 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "outline"
   }
 }
 
-function generateInvoiceNumber(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-  return `INV-${y}${m}${d}-${rand}`;
+function statusLabel(status: string) {
+  switch (status) {
+    case "paid": return "Paid";
+    case "pending": return "Pending";
+    case "forwarded": return "Forwarded";
+    case "cancelled": return "Cancelled";
+    case "draft": return "Draft";
+    default: return status;
+  }
 }
 
 function todayStr(): string {
@@ -162,13 +188,11 @@ function CreateInvoiceDialog() {
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const invoiceNumber = generateInvoiceNumber();
       const body = {
-        invoiceNumber,
         ownerId: parseInt(ownerId),
         petId: petId ? parseInt(petId) : null,
         date,
-        status: "draft",
+        status: "pending",
         subtotal: subtotal.toFixed(2),
         tax: taxAmount.toFixed(2),
         discount: discount.toFixed(2),
@@ -189,7 +213,7 @@ function CreateInvoiceDialog() {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       setOpen(false);
       resetForm();
-      toast({ title: "Invoice created", description: "New invoice has been created as draft." });
+      toast({ title: "Invoice created", description: "New invoice has been created." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -203,7 +227,7 @@ function CreateInvoiceDialog() {
       <DialogTrigger asChild>
         <Button data-testid="button-create-invoice">
           <Plus className="w-4 h-4 mr-1" />
-          Create Invoice
+          New Invoice
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -392,32 +416,35 @@ function CreateInvoiceDialog() {
 }
 
 function ViewInvoiceDialog({
-  invoiceId,
+  invoice,
   owners,
   allPets,
   open,
   onOpenChange,
 }: {
-  invoiceId: number;
+  invoice: InvoiceWithMeta;
   owners: Owner[];
   allPets: Pet[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { hasPermission } = useAuth();
   const { toast } = useToast();
-  const { data: invoice, isLoading } = useQuery<InvoiceWithItems>({
-    queryKey: ["/api/invoices", invoiceId],
+  const canEdit = hasPermission("billing.edit", "billing.manage");
+
+  const { data: fullInvoice, isLoading } = useQuery<InvoiceWithMeta>({
+    queryKey: ["/api/invoices", invoice.id],
     enabled: open,
   });
 
   const statusMutation = useMutation({
     mutationFn: async (newStatus: string) => {
-      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}`, { status: newStatus });
+      const res = await apiRequest("PATCH", `/api/invoices/${invoice.id}`, { status: newStatus });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices", invoiceId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices", invoice.id] });
       toast({ title: "Status updated" });
     },
     onError: (err: Error) => {
@@ -425,8 +452,9 @@ function ViewInvoiceDialog({
     },
   });
 
-  const owner = invoice ? owners.find((o) => o.id === invoice.ownerId) : null;
-  const pet = invoice?.petId ? allPets.find((p) => p.id === invoice.petId) : null;
+  const inv = fullInvoice || invoice;
+  const owner = owners.find((o) => o.id === inv.ownerId);
+  const pet = inv.petId ? allPets.find((p) => p.id === inv.petId) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -442,24 +470,29 @@ function ViewInvoiceDialog({
             <Skeleton className="h-4 w-64" />
             <Skeleton className="h-32 w-full" />
           </div>
-        ) : invoice ? (
+        ) : (
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-between gap-2 no-print flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
-                <Select
-                  value={invoice.status}
-                  onValueChange={(v) => statusMutation.mutate(v)}
-                >
-                  <SelectTrigger className="w-32" data-testid="select-invoice-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="sent">Sent</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
+                {canEdit && (
+                  <Select
+                    value={inv.status}
+                    onValueChange={(v) => statusMutation.mutate(v)}
+                  >
+                    <SelectTrigger className="w-32" data-testid="select-invoice-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="forwarded">Forwarded</SelectItem>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+                {!canEdit && (
+                  <Badge variant={statusBadgeVariant(inv.status)}>{statusLabel(inv.status)}</Badge>
+                )}
               </div>
               <Button variant="outline" onClick={() => window.print()} data-testid="button-print-invoice">
                 <Printer className="w-4 h-4 mr-1" />
@@ -477,8 +510,8 @@ function ViewInvoiceDialog({
               <div className="border-t pt-4 flex justify-between gap-4 flex-wrap">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">INVOICE</span>
-                  <span className="font-semibold" data-testid="text-invoice-number">{invoice.invoiceNumber}</span>
-                  <span className="text-sm text-muted-foreground" data-testid="text-invoice-date">Date: {invoice.date}</span>
+                  <span className="font-semibold" data-testid="text-invoice-number">{inv.invoiceNumber}</span>
+                  <span className="text-sm text-muted-foreground" data-testid="text-invoice-date">Date: {inv.date}</span>
                 </div>
                 <div className="flex flex-col gap-1 text-right">
                   <span className="text-xs text-muted-foreground">BILL TO</span>
@@ -507,7 +540,7 @@ function ViewInvoiceDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoice.items?.map((item, idx) => (
+                  {inv.items?.map((item, idx) => (
                     <TableRow key={item.id || idx} data-testid={`row-invoice-item-${idx}`}>
                       <TableCell data-testid={`text-item-desc-${idx}`}>{item.description}</TableCell>
                       <TableCell className="text-right">{item.quantity}</TableCell>
@@ -515,99 +548,179 @@ function ViewInvoiceDialog({
                       <TableCell className="text-right">{formatCurrency(item.total)}</TableCell>
                     </TableRow>
                   ))}
+                  {(!inv.items || inv.items.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No line items
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
 
               <div className="flex flex-col items-end gap-1 mt-4 pt-4 border-t">
                 <div className="flex justify-between gap-8 w-full max-w-xs">
                   <span className="text-sm text-muted-foreground">Subtotal</span>
-                  <span className="text-sm" data-testid="text-print-subtotal">{formatCurrency(invoice.subtotal)}</span>
+                  <span className="text-sm" data-testid="text-print-subtotal">{formatCurrency(inv.subtotal)}</span>
                 </div>
-                {parseFloat(String(invoice.tax)) > 0 && (
+                {parseFloat(String(inv.tax)) > 0 && (
                   <div className="flex justify-between gap-8 w-full max-w-xs">
                     <span className="text-sm text-muted-foreground">Tax</span>
-                    <span className="text-sm">{formatCurrency(invoice.tax)}</span>
+                    <span className="text-sm">{formatCurrency(inv.tax)}</span>
                   </div>
                 )}
-                {parseFloat(String(invoice.discount)) > 0 && (
+                {parseFloat(String(inv.discount)) > 0 && (
                   <div className="flex justify-between gap-8 w-full max-w-xs">
                     <span className="text-sm text-muted-foreground">Discount</span>
-                    <span className="text-sm">-{formatCurrency(invoice.discount)}</span>
+                    <span className="text-sm">-{formatCurrency(inv.discount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between gap-8 w-full max-w-xs border-t pt-2 mt-1">
                   <span className="font-semibold">Total</span>
-                  <span className="font-semibold" data-testid="text-print-total">{formatCurrency(invoice.total)}</span>
+                  <span className="font-semibold" data-testid="text-print-total">{formatCurrency(inv.total)}</span>
                 </div>
               </div>
 
-              {invoice.notes && (
+              {inv.notes && (
                 <div className="mt-4 pt-4 border-t">
                   <span className="text-xs text-muted-foreground">NOTES</span>
-                  <p className="text-sm mt-1" data-testid="text-invoice-notes">{invoice.notes}</p>
+                  <p className="text-sm mt-1" data-testid="text-invoice-notes">{inv.notes}</p>
                 </div>
               )}
             </div>
           </div>
-        ) : null}
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
 export default function AdminBilling() {
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [viewInvoiceId, setViewInvoiceId] = useState<number | null>(null);
+  const [viewInvoice, setViewInvoice] = useState<InvoiceWithMeta | null>(null);
+  const { hasPermission } = useAuth();
+  const { toast } = useToast();
 
-  const { data: invoicesData, isLoading } = useQuery<Invoice[]>({ queryKey: ["/api/invoices"] });
+  const canCreate = hasPermission("billing.create", "billing.manage");
+  const canEdit = hasPermission("billing.edit", "billing.manage");
+
+  const { data: invoicesData, isLoading } = useQuery<InvoiceWithMeta[]>({ queryKey: ["/api/invoices"] });
   const { data: owners } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
   const { data: allPets } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
 
+  const markPaidMutation = useMutation({
+    mutationFn: async (invoiceId: number) => {
+      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}`, { status: "paid" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "Invoice marked as paid" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const forwardMutation = useMutation({
+    mutationFn: async (invoiceId: number) => {
+      const res = await apiRequest("PATCH", `/api/invoices/${invoiceId}`, { status: "forwarded" });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({ title: "Invoice forwarded to pharmacy" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const filteredInvoices = useMemo(() => {
     if (!invoicesData) return [];
-    if (statusFilter === "all") return invoicesData;
-    return invoicesData.filter((inv) => inv.status === statusFilter);
-  }, [invoicesData, statusFilter]);
+    let list = invoicesData;
+    if (statusFilter !== "all") {
+      list = list.filter((inv) => inv.status === statusFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter((inv) => {
+        const petName = inv.petId ? (allPets?.find((p) => p.id === inv.petId)?.name || "") : "";
+        const ownerName = owners?.find((o) => o.id === inv.ownerId);
+        const ownerFullName = ownerName ? `${ownerName.firstName} ${ownerName.lastName}` : "";
+        return (
+          inv.invoiceNumber.toLowerCase().includes(q) ||
+          petName.toLowerCase().includes(q) ||
+          ownerFullName.toLowerCase().includes(q) ||
+          inv.createdByName.toLowerCase().includes(q)
+        );
+      });
+    }
+    return list;
+  }, [invoicesData, statusFilter, searchQuery, allPets, owners]);
 
   const getOwnerName = (ownerId: number) => {
     const owner = owners?.find((o) => o.id === ownerId);
     return owner ? `${owner.firstName} ${owner.lastName}` : "Unknown";
   };
 
-  const getPetName = (petId: number | null) => {
-    if (!petId) return "-";
-    const pet = allPets?.find((p) => p.id === petId);
-    return pet ? pet.name : "Unknown";
+  const getPetInfo = (petId: number | null, ownerId: number) => {
+    const pet = petId ? allPets?.find((p) => p.id === petId) : null;
+    const ownerName = getOwnerName(ownerId);
+    return { petName: pet?.name || "-", ownerName };
   };
+
+  const handlePrint = (inv: InvoiceWithMeta) => {
+    setViewInvoice(inv);
+    setTimeout(() => window.print(), 500);
+  };
+
+  const statusTabs = [
+    { value: "all", label: "All" },
+    { value: "pending", label: "Pending" },
+    { value: "forwarded", label: "Forwarded" },
+    { value: "paid", label: "Paid" },
+    { value: "cancelled", label: "Cancelled" },
+  ];
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-admin-billing">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link href="/">
-              <Button size="icon" variant="ghost" data-testid="button-back">
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Billing & Invoices</h1>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Billing & Invoices</h1>
           <p className="text-sm text-muted-foreground">
-            Create and manage invoices for pet owners.
+            Manage payments and generate invoices.
           </p>
         </div>
-        <CreateInvoiceDialog />
+        {canCreate && <CreateInvoiceDialog />}
       </div>
 
-      <Tabs value={statusFilter} onValueChange={setStatusFilter}>
-        <TabsList data-testid="tabs-invoice-status">
-          <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
-          <TabsTrigger value="draft" data-testid="tab-draft">Draft</TabsTrigger>
-          <TabsTrigger value="sent" data-testid="tab-sent">Sent</TabsTrigger>
-          <TabsTrigger value="paid" data-testid="tab-paid">Paid</TabsTrigger>
-          <TabsTrigger value="cancelled" data-testid="tab-cancelled">Cancelled</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search invoices..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-invoices"
+          />
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          {statusTabs.map((tab) => (
+            <Button
+              key={tab.value}
+              variant={statusFilter === tab.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter(tab.value)}
+              data-testid={`tab-${tab.value}`}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </div>
+      </div>
 
       {isLoading ? (
         <Card>
@@ -628,7 +741,6 @@ export default function AdminBilling() {
       ) : filteredInvoices.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center">
-            <Receipt className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
             <p className="text-sm text-muted-foreground" data-testid="text-no-invoices">
               {statusFilter === "all" ? "No invoices yet. Create your first invoice." : `No ${statusFilter} invoices found.`}
             </p>
@@ -637,92 +749,166 @@ export default function AdminBilling() {
       ) : (
         <>
           <Card className="hidden sm:block">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+              <CardTitle className="text-base">Recent Invoices</CardTitle>
+            </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice #</TableHead>
-                    <TableHead>Owner</TableHead>
-                    <TableHead>Pet</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead>INVOICE ID</TableHead>
+                    <TableHead>DATE</TableHead>
+                    <TableHead>PATIENT</TableHead>
+                    <TableHead>AMOUNT</TableHead>
+                    <TableHead>STATUS</TableHead>
+                    <TableHead>CREATED BY</TableHead>
+                    <TableHead className="text-right">ACTIONS</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredInvoices.map((inv) => (
-                    <TableRow
-                      key={inv.id}
-                      className="cursor-pointer hover-elevate"
-                      onClick={() => setViewInvoiceId(inv.id)}
-                      data-testid={`row-invoice-${inv.id}`}
-                    >
-                      <TableCell>
-                        <span className="text-sm font-medium" data-testid={`text-invoice-number-${inv.id}`}>
-                          {inv.invoiceNumber}
-                        </span>
-                      </TableCell>
-                      <TableCell data-testid={`text-invoice-owner-${inv.id}`}>
-                        {getOwnerName(inv.ownerId)}
-                      </TableCell>
-                      <TableCell data-testid={`text-invoice-pet-${inv.id}`}>
-                        {getPetName(inv.petId)}
-                      </TableCell>
-                      <TableCell data-testid={`text-invoice-date-${inv.id}`}>
-                        {inv.date}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusBadgeVariant(inv.status)} data-testid={`badge-status-${inv.id}`}>
-                          {inv.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-medium" data-testid={`text-invoice-total-${inv.id}`}>
-                        {formatCurrency(inv.total)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredInvoices.map((inv) => {
+                    const { petName, ownerName } = getPetInfo(inv.petId, inv.ownerId);
+                    return (
+                      <TableRow key={inv.id} data-testid={`row-invoice-${inv.id}`}>
+                        <TableCell>
+                          <span className="text-sm font-medium text-primary" data-testid={`text-invoice-number-${inv.id}`}>
+                            {inv.invoiceNumber}
+                          </span>
+                        </TableCell>
+                        <TableCell data-testid={`text-invoice-date-${inv.id}`}>
+                          {inv.date}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium" data-testid={`text-invoice-pet-${inv.id}`}>{petName}</span>
+                            <span className="text-xs text-muted-foreground" data-testid={`text-invoice-owner-${inv.id}`}>{ownerName}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium" data-testid={`text-invoice-total-${inv.id}`}>
+                            {formatCurrency(inv.total)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadgeVariant(inv.status)} data-testid={`badge-status-${inv.id}`}>
+                            {statusLabel(inv.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell data-testid={`text-invoice-creator-${inv.id}`}>
+                          {inv.createdByName}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            {canEdit && inv.status === "pending" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.stopPropagation(); markPaidMutation.mutate(inv.id); }}
+                                disabled={markPaidMutation.isPending}
+                                data-testid={`button-mark-paid-${inv.id}`}
+                              >
+                                Mark Paid
+                              </Button>
+                            )}
+                            {canEdit && inv.status === "pending" && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={(e) => { e.stopPropagation(); forwardMutation.mutate(inv.id); }}
+                                disabled={forwardMutation.isPending}
+                                data-testid={`button-forward-${inv.id}`}
+                                title="Forward to Pharmacy"
+                              >
+                                <Forward className="w-4 h-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => { e.stopPropagation(); setViewInvoice(inv); }}
+                              data-testid={`button-view-${inv.id}`}
+                              title="View Invoice"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => { e.stopPropagation(); handlePrint(inv); }}
+                              data-testid={`button-print-${inv.id}`}
+                              title="Print Invoice"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
 
           <div className="flex flex-col gap-3 sm:hidden">
-            {filteredInvoices.map((inv) => (
-              <Card
-                key={inv.id}
-                className="cursor-pointer hover-elevate"
-                onClick={() => setViewInvoiceId(inv.id)}
-                data-testid={`card-invoice-${inv.id}`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-medium">{inv.invoiceNumber}</span>
-                      <span className="text-xs text-muted-foreground">{getOwnerName(inv.ownerId)}</span>
-                      <span className="text-xs text-muted-foreground">{getPetName(inv.petId)}</span>
-                      <span className="text-xs text-muted-foreground">{inv.date}</span>
+            {filteredInvoices.map((inv) => {
+              const { petName, ownerName } = getPetInfo(inv.petId, inv.ownerId);
+              return (
+                <Card
+                  key={inv.id}
+                  className="cursor-pointer hover-elevate"
+                  onClick={() => setViewInvoice(inv)}
+                  data-testid={`card-invoice-${inv.id}`}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-medium text-primary">{inv.invoiceNumber}</span>
+                        <span className="text-xs text-muted-foreground">{petName} - {ownerName}</span>
+                        <span className="text-xs text-muted-foreground">{inv.date}</span>
+                        <span className="text-xs text-muted-foreground">By: {inv.createdByName}</span>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <Badge variant={statusBadgeVariant(inv.status)}>
+                          {statusLabel(inv.status)}
+                        </Badge>
+                        <span className="text-sm font-semibold">{formatCurrency(inv.total)}</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Badge variant={statusBadgeVariant(inv.status)}>
-                        {inv.status}
-                      </Badge>
-                      <span className="text-sm font-semibold">{formatCurrency(inv.total)}</span>
+                    <div className="flex items-center gap-1 mt-3 justify-end">
+                      {canEdit && inv.status === "pending" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => { e.stopPropagation(); markPaidMutation.mutate(inv.id); }}
+                          data-testid={`button-mark-paid-mobile-${inv.id}`}
+                        >
+                          Mark Paid
+                        </Button>
+                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={(e) => { e.stopPropagation(); handlePrint(inv); }}
+                      >
+                        <Printer className="w-4 h-4" />
+                      </Button>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </>
       )}
 
-      {viewInvoiceId !== null && owners && allPets && (
+      {viewInvoice !== null && owners && allPets && (
         <ViewInvoiceDialog
-          invoiceId={viewInvoiceId}
+          invoice={viewInvoice}
           owners={owners}
           allPets={allPets}
-          open={viewInvoiceId !== null}
-          onOpenChange={(v) => { if (!v) setViewInvoiceId(null); }}
+          open={viewInvoice !== null}
+          onOpenChange={(v) => { if (!v) setViewInvoice(null); }}
         />
       )}
     </div>

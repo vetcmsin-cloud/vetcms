@@ -55,7 +55,7 @@ shared/
 ```
 
 ## Authentication & Roles
-- **Three roles**: superadmin, doctor, receptionist
+- **Four roles**: superadmin, doctor, receptionist, pharmacy
 - **Session-based auth**: express-session with PostgreSQL session store (connect-pg-simple)
 - **Default users** (seeded on first startup):
   - superadmin@petpointvet.in / Admin@9447770876# (superadmin - master admin with data.erase)
@@ -64,14 +64,27 @@ shared/
   - rec@petpointvet.in / reception123 (receptionist)
 
 ### Role Permissions
-| Feature | Superadmin | Doctor | Receptionist |
-|---------|-----------|--------|-------------|
-| Dashboard | Yes | Yes | Yes |
-| Patients | Yes | Yes | Yes |
-| Owners | Yes | Yes | Yes |
-| Appointments | Yes | Yes | Yes |
-| Medical Records | Yes | Yes | No (server-enforced) |
-| User Management | Yes | No | No |
+| Feature | Superadmin | Doctor | Receptionist | Pharmacy |
+|---------|-----------|--------|-------------|----------|
+| Dashboard | Yes | Yes | Yes | Yes |
+| Patients | Yes | Yes | Yes | View only |
+| Owners | Yes | Yes | Yes | No |
+| Appointments | Yes | Yes | Yes | No |
+| Medical Records | Yes | Yes | No | No |
+| Billing - View | Yes | Yes | Yes (print only) | Yes |
+| Billing - Create | Yes | Yes | No | No |
+| Billing - Edit | Yes | Yes | No | Yes (forwarded only) |
+| User Management | Yes | No | No | No |
+
+### Billing & Invoice System
+- **Invoice number format**: #PET-XXXX (server-generated, sequential)
+- **Invoice statuses**: pending, forwarded, paid, cancelled
+- **createdBy**: Tracks which user created each invoice
+- **Role-based billing access**:
+  - Doctor: Can create invoices, add consultation fees, edit invoices, mark paid, forward to pharmacy
+  - Pharmacy: Can only edit invoices with "forwarded" status (add medicine prices)
+  - Receptionist: Read-only access, can only view and print invoices
+  - Superadmin: Full access to all billing features
 
 ## Key Features
 1. **Dashboard**: Overview stats (patients, owners, appointments), upcoming appointments, recent patients
@@ -79,7 +92,7 @@ shared/
 3. **Patient Chart**: Slide-in panel with 5 tabs (Patient Info, Owner, History, Documents, Medical Records)
    - SOAP note form (Subjective, Objective, Assessment, Plan) in Medical Records tab
    - "Save Record" and "Save & Generate Invoice" buttons
-   - "Save & Generate Invoice" creates a draft invoice and navigates to billing
+   - "Save & Generate Invoice" creates a pending invoice with server-generated #PET-XXXX number
    - Book Appointment and Edit Patient actions from the chart
 4. **Owners**: Manage pet owners with contact information
 5. **Appointments**: Schedule, filter by status, complete/cancel appointments

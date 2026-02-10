@@ -26,15 +26,6 @@ import {
 } from "lucide-react";
 import type { Pet, Owner, Appointment, MedicalRecord } from "@shared/schema";
 
-function generateInvoiceNumber(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 1000)).padStart(3, "0");
-  return `INV-${y}${m}${d}-${rand}`;
-}
-
 function todayStr(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -243,13 +234,11 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
       await recordRes.json();
 
       if (owner && canGenerateInvoice) {
-        const invoiceNumber = generateInvoiceNumber();
         const invoiceBody = {
-          invoiceNumber,
           ownerId: owner.id,
           petId: pet.id,
           date: todayStr(),
-          status: "draft",
+          status: "pending",
           subtotal: "0.00",
           tax: "0.00",
           discount: "0.00",

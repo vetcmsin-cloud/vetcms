@@ -31,7 +31,7 @@ export async function seedDatabase() {
         "owners.view", "owners.create", "owners.edit",
         "appointments.view", "appointments.create", "appointments.edit",
         "medical_records.view", "medical_records.create", "medical_records.delete",
-        "billing.view", "billing.create",
+        "billing.view", "billing.create", "billing.edit",
       ],
       isSystem: "true",
     });
@@ -42,7 +42,15 @@ export async function seedDatabase() {
         "dashboard.view", "patients.view", "patients.create", "patients.edit",
         "owners.view", "owners.create", "owners.edit",
         "appointments.view", "appointments.create", "appointments.edit",
-        "billing.view", "billing.create",
+        "billing.view",
+      ],
+      isSystem: "true",
+    });
+    await db.insert(roles).values({
+      name: "pharmacy",
+      description: "Pharmacy staff - can add medicine prices to forwarded invoices",
+      permissions: [
+        "dashboard.view", "patients.view", "billing.view", "billing.edit",
       ],
       isSystem: "true",
     });

@@ -12,7 +12,7 @@ import {
   roles, feeStructures, invoices, invoiceItems,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export interface IStorage {
   getUsers(): Promise<User[]>;
@@ -66,6 +66,7 @@ export interface IStorage {
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined>;
   deleteInvoice(id: number): Promise<void>;
 
+  getNextInvoiceNumber(): Promise<string>;
   getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]>;
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   deleteInvoiceItem(id: number): Promise<void>;
@@ -276,6 +277,12 @@ export class DatabaseStorage implements IStorage {
   async deleteInvoice(id: number): Promise<void> {
     await db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id));
     await db.delete(invoices).where(eq(invoices.id, id));
+  }
+
+  async getNextInvoiceNumber(): Promise<string> {
+    const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(invoices);
+    const nextNum = (result[0]?.maxId || 0) + 1;
+    return `#PET-${String(nextNum).padStart(4, "0")}`;
   }
 
   async getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]> {

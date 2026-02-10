@@ -162,19 +162,33 @@ export async function registerRoutes(
   // Invoices (permission-based)
   app.get("/api/invoices", requireAuth, requirePermission("billing.view", "billing.manage"), async (_req, res) => {
     const allInvoices = await storage.getInvoices();
-    res.json(allInvoices);
+    const allUsers = await storage.getUsers();
+    const enriched = allInvoices.map((inv) => {
+      const creator = inv.createdBy ? allUsers.find((u) => u.id === inv.createdBy) : null;
+      return { ...inv, createdByName: creator?.name || "System" };
+    });
+    res.json(enriched);
+  });
+
+  app.get("/api/invoices/next-number", requireAuth, requirePermission("billing.view", "billing.manage", "billing.create"), async (_req, res) => {
+    const nextNumber = await storage.getNextInvoiceNumber();
+    res.json({ invoiceNumber: nextNumber });
   });
 
   app.get("/api/invoices/:id", requireAuth, requirePermission("billing.view", "billing.manage"), async (req, res) => {
     const invoice = await storage.getInvoice(parseInt(req.params.id));
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
     const items = await storage.getInvoiceItems(invoice.id);
-    res.json({ ...invoice, items });
+    const creator = invoice.createdBy ? await storage.getUser(invoice.createdBy) : null;
+    res.json({ ...invoice, items, createdByName: creator?.name || "System" });
   });
 
   app.post("/api/invoices", requireAuth, requirePermission("billing.manage", "billing.create"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
-    const parsed = insertInvoiceSchema.safeParse(invoiceData);
+    const userId = (req.session as any).userId;
+    const invoiceNumber = await storage.getNextInvoiceNumber();
+    const dataWithMeta = { ...invoiceData, invoiceNumber, createdBy: userId, status: invoiceData.status || "pending" };
+    const parsed = insertInvoiceSchema.safeParse(dataWithMeta);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
     const invoice = await storage.createInvoice(parsed.data);
@@ -189,11 +203,22 @@ export async function registerRoutes(
     }
 
     const createdItems = await storage.getInvoiceItems(invoice.id);
-    res.status(201).json({ ...invoice, items: createdItems });
+    const creator = invoice.createdBy ? await storage.getUser(invoice.createdBy) : null;
+    res.status(201).json({ ...invoice, items: createdItems, createdByName: creator?.name || "System" });
   });
 
   app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.edit"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
+    const userId = (req.session as any).userId;
+
+    const existing = await storage.getInvoice(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ message: "Invoice not found" });
+
+    const user = await storage.getUser(userId);
+    if (user?.role === "pharmacy" && existing.status !== "forwarded") {
+      return res.status(403).json({ message: "Pharmacy can only edit forwarded invoices" });
+    }
+
     const parsed = insertInvoiceSchema.partial().safeParse(invoiceData);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
@@ -211,7 +236,8 @@ export async function registerRoutes(
     }
 
     const updatedItems = await storage.getInvoiceItems(updated.id);
-    res.json({ ...updated, items: updatedItems });
+    const creator = updated.createdBy ? await storage.getUser(updated.createdBy) : null;
+    res.json({ ...updated, items: updatedItems, createdByName: creator?.name || "System" });
   });
 
   app.delete("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.delete"), async (req, res) => {
