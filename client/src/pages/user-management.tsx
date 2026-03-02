@@ -45,7 +45,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Pencil, Trash2, UserPlus, Shield, Eye, EyeOff } from "lucide-react";
-import type { User } from "@shared/schema";
+import type { User, Role } from "@shared/schema";
 
 type SafeUser = Omit<User, "password">;
 
@@ -81,6 +81,7 @@ function AddUserDialog() {
   const [open, setOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -88,6 +89,16 @@ function AddUserDialog() {
     password: "",
     role: "receptionist",
   });
+
+  const { data: roles } = useQuery<Role[]>({
+    queryKey: ["/api/roles"],
+    enabled: open,
+  });
+
+  // Filter out superadmin role unless current user is superadmin
+  const availableRoles = roles?.filter(r =>
+    currentUser?.role === "superadmin" ? r.name !== "superadmin" : r.name !== "superadmin"
+  ) || [];
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -179,11 +190,21 @@ function AddUserDialog() {
             <Label>Role</Label>
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
               <SelectTrigger data-testid="select-user-role">
-                <SelectValue />
+                <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="doctor">Doctor</SelectItem>
-                <SelectItem value="receptionist">Receptionist</SelectItem>
+                {availableRoles.length > 0 ? (
+                  availableRoles.map((r) => (
+                    <SelectItem key={r.id} value={r.name}>
+                      {r.name.charAt(0).toUpperCase() + r.name.slice(1)}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <>
+                    <SelectItem value="doctor">Doctor</SelectItem>
+                    <SelectItem value="receptionist">Receptionist</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -203,6 +224,7 @@ function AddUserDialog() {
 function EditUserDialog({ user }: { user: SafeUser }) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
@@ -210,6 +232,14 @@ function EditUserDialog({ user }: { user: SafeUser }) {
     role: user.role,
     password: "",
   });
+
+  const { data: roles } = useQuery<Role[]>({
+    queryKey: ["/api/roles"],
+    enabled: open,
+  });
+
+  // Filter out superadmin from role list
+  const availableRoles = roles?.filter(r => r.name !== "superadmin") || [];
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -293,8 +323,18 @@ function EditUserDialog({ user }: { user: SafeUser }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="doctor">Doctor</SelectItem>
-                  <SelectItem value="receptionist">Receptionist</SelectItem>
+                  {availableRoles.length > 0 ? (
+                    availableRoles.map((r) => (
+                      <SelectItem key={r.id} value={r.name}>
+                        {r.name.charAt(0).toUpperCase() + r.name.slice(1)}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="doctor">Doctor</SelectItem>
+                      <SelectItem value="receptionist">Receptionist</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
