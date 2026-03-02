@@ -136,7 +136,9 @@ export async function registerRoutes(
     (req.session as any).userRole = user.role;
 
     const role = await storage.getRoleByName(user.role);
-    const effectivePermissions = user.permissions || role?.permissions || [];
+    const effectivePermissions = (user.permissions && user.permissions.length > 0)
+      ? user.permissions
+      : (role?.permissions || []);
 
     const { password: _, ...safeUser } = user;
 
@@ -163,7 +165,9 @@ export async function registerRoutes(
     if (!user) return res.status(401).json({ message: "User not found" });
 
     const role = await storage.getRoleByName(user.role);
-    const effectivePermissions = user.permissions || role?.permissions || [];
+    const effectivePermissions = (user.permissions && user.permissions.length > 0)
+      ? user.permissions
+      : (role?.permissions || []);
 
     const { password: _, ...safeUser } = user;
     res.json({ ...safeUser, effectivePermissions });

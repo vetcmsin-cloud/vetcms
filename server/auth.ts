@@ -77,11 +77,18 @@ export function requirePermission(...permissions: string[]) {
       if (!user) return res.status(401).json({ message: "User not found" });
 
       let effectivePerms: string[] = [];
+      // Only use user-level permissions if explicitly set (non-empty)
+      // An empty array [] means "no override" — fall back to role permissions
       if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
         effectivePerms = user.permissions;
       } else {
+        // Fall back to the role's permissions
         const role = await storage.getRoleByName(user.role);
         effectivePerms = (role?.permissions as string[]) || [];
+        // Superadmin always has full access regardless of role config
+        if (user.role === "superadmin" && effectivePerms.length === 0) {
+          return next(); // superadmin bypasses all permission checks
+        }
       }
 
       const hasPermission = permissions.some((p) => effectivePerms.includes(p));
