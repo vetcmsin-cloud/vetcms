@@ -1,100 +1,89 @@
 #!/bin/bash
 # ============================================================
-#   PetPoint Pro - VPS Update Script
-#   Updates the running app WITHOUT deleting data or config
-#   Run as root: chmod +x update_vps.sh && ./update_vps.sh
+#   PetPoint Pro - VPS Update Script (GitHub Pull Method)
+#   Run on your VPS via Hostinger terminal or SSH:
+#     chmod +x update_vps.sh && ./update_vps.sh
 # ============================================================
 
 set -e
 
-# Colors
+# ── Colors ────────────────────────────────────────────────
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-log_ok() { echo -e "  ${GREEN}✔${NC} $1"; }
-log_warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
-log_err() { echo -e "  ${RED}✘${NC} $1"; }
+ok()   { echo -e "  ${GREEN}✔${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+err()  { echo -e "  ${RED}✘${NC} $1"; }
 
 echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "  PETPOINT PRO - SAFE UPDATE UTILITY"
+echo -e "   PETPOINT PRO — VPS UPDATE UTILITY"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
-if [ "$EUID" -ne 0 ]; then
-  log_err "Please run this script as root: sudo ./update_vps.sh"
-  exit 1
-fi
+# ── Config ────────────────────────────────────────────────
+APP_DIR="/var/www/petpoint"
+PM2_APP_NAME="petpoint"
+GITHUB_BRANCH="main"
 
-APP_DIR="/var/www/vet-clinic"
-
+# ── Check directory ───────────────────────────────────────
 if [ ! -d "$APP_DIR" ]; then
-  log_err "Application directory $APP_DIR not found. Is the app installed?"
+  err "App directory $APP_DIR not found."
   exit 1
 fi
 
-# Find the deploy zip
-DEPLOY_ZIP=""
-if [ -f "/root/deploy_vps.zip" ]; then
-  DEPLOY_ZIP="/root/deploy_vps.zip"
-elif [ -f "$(pwd)/deploy_vps.zip" ]; then
-  DEPLOY_ZIP="$(pwd)/deploy_vps.zip"
-fi
-
-if [ -z "$DEPLOY_ZIP" ]; then
-  log_err "deploy_vps.zip not found in /root/ or current directory!"
-  log_err "Please upload it first: scp deploy_vps.zip root@<your-vps-ip>:/root/"
-  exit 1
-fi
-
-log_ok "Found update package: $DEPLOY_ZIP"
-
-# 1. Backups
-log_ok "Backing up configuration and files..."
-cp "$APP_DIR/.env" /tmp/vet_env_backup 2>/dev/null || true
-if [ -d "$APP_DIR/server/uploads" ]; then
-  cp -r "$APP_DIR/server/uploads" /tmp/vet_uploads_backup 2>/dev/null || true
-fi
-
-# 2. Stop App
-log_ok "Stopping running application..."
-pm2 stop vet-clinic-app 2>/dev/null || true
-
-# 3. Extract Files
-log_ok "Extracting new files..."
-unzip -o "$DEPLOY_ZIP" -d "$APP_DIR" > /dev/null 2>&1 || true
-
-# 4. Restore Backups
-log_ok "Restoring configuration and files..."
-if [ -f "/tmp/vet_env_backup" ]; then
-  mv /tmp/vet_env_backup "$APP_DIR/.env"
-  log_ok ".env configuration restored safely"
-fi
-
-if [ -d "/tmp/vet_uploads_backup" ]; then
-  mkdir -p "$APP_DIR/server"
-  cp -r /tmp/vet_uploads_backup/* "$APP_DIR/server/uploads/" 2>/dev/null || true
-  rm -rf /tmp/vet_uploads_backup
-  log_ok "Uploaded media files restored safely"
-fi
-
-# 5. Install Dependencies & Push DB
-log_ok "Installing dependencies & applying database updates..."
 cd "$APP_DIR"
-npm ci > /dev/null 2>&1
 
-log_ok "Updating database schema (Data will NOT be deleted)..."
-npx drizzle-kit push 2>&1
+# ── Step 1: Backup .env & uploads ─────────────────────────
+ok "Backing up .env and uploads..."
+cp "$APP_DIR/.env" /tmp/petpoint_env_backup 2>/dev/null && ok ".env backed up" || warn ".env not found, skipping"
+if [ -d "$APP_DIR/server/uploads" ]; then
+  cp -r "$APP_DIR/server/uploads" /tmp/petpoint_uploads_backup 2>/dev/null
+  ok "Uploads backed up"
+fi
 
-log_ok "Cleaning up temporary build tools..."
-npm prune --omit=dev > /dev/null 2>&1
+# ── Step 2: Pull latest code from GitHub ──────────────────
+ok "Pulling latest code from GitHub ($GITHUB_BRANCH)..."
+git fetch origin
+git reset --hard origin/$GITHUB_BRANCH
+ok "Code updated successfully"
 
-# 6. Restart App
-log_ok "Restarting application..."
-pm2 restart vet-clinic-app || pm2 start ecosystem.config.cjs
-pm2 save > /dev/null 2>&1
+# ── Step 3: Restore .env & uploads ────────────────────────
+ok "Restoring .env and uploads..."
+if [ -f "/tmp/petpoint_env_backup" ]; then
+  mv /tmp/petpoint_env_backup "$APP_DIR/.env"
+  ok ".env restored"
+fi
+if [ -d "/tmp/petpoint_uploads_backup" ]; then
+  mkdir -p "$APP_DIR/server/uploads"
+  cp -r /tmp/petpoint_uploads_backup/. "$APP_DIR/server/uploads/" 2>/dev/null || true
+  rm -rf /tmp/petpoint_uploads_backup
+  ok "Uploads restored"
+fi
 
-echo -e "\n${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}   🎉  UPDATE SUCCESSFUL! YOUR APP IS NOW RUNNING LATEST CODE  🎉${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+# ── Step 4: Install dependencies ──────────────────────────
+ok "Installing dependencies..."
+npm ci --silent
+ok "Dependencies ready"
+
+# ── Step 5: Build the app ─────────────────────────────────
+ok "Building the app (this may take a minute)..."
+npm run build
+ok "Build complete"
+
+# ── Step 6: Apply database schema changes ─────────────────
+ok "Applying database schema updates (data is safe)..."
+npx drizzle-kit push 2>&1 | tail -5
+ok "Database schema up to date"
+
+# ── Step 7: Restart PM2 ───────────────────────────────────
+ok "Restarting app..."
+pm2 restart "$PM2_APP_NAME" 2>/dev/null || pm2 start ecosystem.config.cjs
+pm2 save >/dev/null 2>&1
+ok "App restarted"
+
+echo -e "\n${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}   🎉  UPDATE SUCCESSFUL! PetPoint Pro is now on the latest version${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+pm2 status "$PM2_APP_NAME"
