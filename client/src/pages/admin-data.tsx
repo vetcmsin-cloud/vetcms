@@ -24,6 +24,7 @@ import {
   Users,
   Receipt,
   ShieldAlert,
+  FlaskConical,
 } from "lucide-react";
 
 interface DataCounts {
@@ -32,9 +33,10 @@ interface DataCounts {
   appointments: number;
   medicalRecords: number;
   invoices: number;
+  labReports: number;
 }
 
-type EraseTarget = "medical-records" | "appointments" | "pets" | "owners" | "invoices" | "all";
+type EraseTarget = "medical-records" | "appointments" | "pets" | "owners" | "invoices" | "lab-reports" | "all";
 
 const eraseOptions: { target: EraseTarget; label: string; description: string; icon: typeof Trash2; warning: string }[] = [
   {
@@ -57,6 +59,13 @@ const eraseOptions: { target: EraseTarget; label: string; description: string; i
     description: "Erase all invoices, invoice items, and billing data",
     icon: Receipt,
     warning: "This will permanently delete all invoices and billing data. This action cannot be undone.",
+  },
+  {
+    target: "lab-reports",
+    label: "Lab Reports",
+    description: "Erase all lab reports, lab orders, and test results completely",
+    icon: FlaskConical,
+    warning: "This will permanently delete all lab reports and test results. This action cannot be undone.",
   },
   {
     target: "pets",
@@ -164,6 +173,7 @@ export default function AdminData() {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/medical-records"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lab-reports"] });
       setEraseTarget(null);
       toast({ title: "Data erased", description: data.message });
     },
@@ -187,8 +197,8 @@ export default function AdminData() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {[1, 2, 3, 4, 5].map((i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <Card key={i}>
               <CardContent className="p-4">
                 <Skeleton className="h-4 w-20 mb-2" />
@@ -198,7 +208,7 @@ export default function AdminData() {
           ))}
         </div>
       ) : counts && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <Card data-testid="count-owners">
             <CardContent className="p-4 flex flex-col gap-1">
               <span className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -237,6 +247,14 @@ export default function AdminData() {
                 <Receipt className="w-3.5 h-3.5" /> Invoices
               </span>
               <span className="text-2xl font-bold">{counts.invoices}</span>
+            </CardContent>
+          </Card>
+          <Card data-testid="count-lab-reports">
+            <CardContent className="p-4 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <FlaskConical className="w-3.5 h-3.5" /> Lab Reports
+              </span>
+              <span className="text-2xl font-bold">{counts.labReports}</span>
             </CardContent>
           </Card>
         </div>

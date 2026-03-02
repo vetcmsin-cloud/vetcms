@@ -9,11 +9,25 @@ import {
   type Invoice, type InsertInvoice,
   type InvoiceItem, type InsertInvoiceItem,
   type ClinicSetting,
+  type InventoryItem, type InsertInventoryItem,
+  type Supplier, type InsertSupplier,
+  type PurchaseOrder, type InsertPurchaseOrder,
+  type PurchaseOrderItem, type InsertPurchaseOrderItem,
+  type Expense, type InsertExpense,
+  type ActivityLog, type InsertActivityLog,
+  type PetDocument, type InsertPetDocument,
   owners, pets, appointments, medicalRecords, users,
   roles, feeStructures, invoices, invoiceItems, clinicSettings,
+  inventoryItems, expenses, suppliers, purchaseOrders, purchaseOrderItems,
+  activityLogs, petDocuments,
+  type LabReport, type InsertLabReport, labReports,
+  type LabCategory, type InsertLabCategory, labTestCategories,
+  type LabTest, type InsertLabTest, labTests,
+  type LabRefRange, type InsertLabRefRange, labRefRanges,
+  type Species, type InsertSpecies, species,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
 
 export interface IStorage {
   getUsers(): Promise<User[]>;
@@ -46,6 +60,7 @@ export interface IStorage {
   getMedicalRecord(id: number): Promise<MedicalRecord | undefined>;
   getMedicalRecordsByPet(petId: number): Promise<MedicalRecord[]>;
   createMedicalRecord(record: InsertMedicalRecord): Promise<MedicalRecord>;
+  updateMedicalRecord(id: number, data: Partial<InsertMedicalRecord>): Promise<MedicalRecord | undefined>;
   deleteMedicalRecord(id: number): Promise<void>;
 
   getRoles(): Promise<Role[]>;
@@ -83,7 +98,75 @@ export interface IStorage {
   eraseAllPets(): Promise<number>;
   eraseAllOwners(): Promise<number>;
   eraseAllInvoices(): Promise<number>;
-  eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number }>;
+  eraseAllLabReports(): Promise<number>;
+  eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number }>;
+
+  getInventoryItems(): Promise<InventoryItem[]>;
+  getInventoryItem(id: number): Promise<InventoryItem | undefined>;
+  createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
+  updateInventoryItem(id: number, item: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined>;
+  deleteInventoryItem(id: number): Promise<void>;
+
+  getExpenses(): Promise<Expense[]>;
+  createExpense(expense: InsertExpense): Promise<Expense>;
+  deleteExpense(id: number): Promise<void>;
+
+  // Suppliers
+  getSuppliers(): Promise<Supplier[]>;
+  getSupplier(id: number): Promise<Supplier | undefined>;
+  createSupplier(supplier: InsertSupplier): Promise<Supplier>;
+  updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
+  deleteSupplier(id: number): Promise<void>;
+
+  // Purchase Orders
+  getPurchaseOrders(): Promise<PurchaseOrder[]>;
+  getPurchaseOrder(id: number): Promise<PurchaseOrder | undefined>;
+  createPurchaseOrder(order: InsertPurchaseOrder): Promise<PurchaseOrder>;
+  updatePurchaseOrder(id: number, data: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder | undefined>;
+  deletePurchaseOrder(id: number): Promise<void>;
+  getPurchaseOrderItems(purchaseOrderId: number): Promise<PurchaseOrderItem[]>;
+  createPurchaseOrderItem(item: InsertPurchaseOrderItem): Promise<PurchaseOrderItem>;
+  deletePurchaseOrderItem(id: number): Promise<void>;
+
+  // Low stock
+  getLowStockItems(): Promise<InventoryItem[]>;
+
+  getLabReportsByPetId(petId: number): Promise<LabReport[]>;
+  getAllLabReports(): Promise<LabReport[]>;
+  createLabReport(report: InsertLabReport): Promise<LabReport>;
+  updateLabReport(id: number, report: Partial<InsertLabReport>): Promise<LabReport | undefined>;
+  deleteLabReport(id: number): Promise<void>;
+
+  // Activity Logs
+  createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
+  getActivityLogs(limit?: number, offset?: number, filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<ActivityLog[]>;
+  getActivityLogCount(filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<number>;
+
+  // Pet Documents
+  getPetDocuments(petId: number): Promise<PetDocument[]>;
+  createPetDocument(doc: InsertPetDocument): Promise<PetDocument>;
+  deletePetDocument(id: number): Promise<void>;
+
+  // Species
+  getSpecies(): Promise<Species[]>;
+  createSpecies(species: InsertSpecies): Promise<Species>;
+  deleteSpecies(id: number): Promise<void>;
+
+  // Dynamic Lab Configuration
+  getLabCategories(): Promise<LabCategory[]>;
+  createLabCategory(category: InsertLabCategory): Promise<LabCategory>;
+  updateLabCategory(id: number, data: Partial<InsertLabCategory>): Promise<LabCategory | undefined>;
+  deleteLabCategory(id: number): Promise<void>;
+
+  getLabTests(categoryId?: number): Promise<LabTest[]>;
+  createLabTest(test: InsertLabTest): Promise<LabTest>;
+  updateLabTest(id: number, data: Partial<InsertLabTest>): Promise<LabTest | undefined>;
+  deleteLabTest(id: number): Promise<void>;
+
+  getLabRefRanges(testId?: number): Promise<LabRefRange[]>;
+  createLabRefRange(range: InsertLabRefRange): Promise<LabRefRange>;
+  updateLabRefRange(id: number, data: Partial<InsertLabRefRange>): Promise<LabRefRange | undefined>;
+  deleteLabRefRange(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -204,6 +287,11 @@ export class DatabaseStorage implements IStorage {
   async createMedicalRecord(record: InsertMedicalRecord): Promise<MedicalRecord> {
     const [created] = await db.insert(medicalRecords).values(record).returning();
     return created;
+  }
+
+  async updateMedicalRecord(id: number, data: Partial<InsertMedicalRecord>): Promise<MedicalRecord | undefined> {
+    const [updated] = await db.update(medicalRecords).set(data).where(eq(medicalRecords.id, id)).returning();
+    return updated;
   }
 
   async deleteMedicalRecord(id: number): Promise<void> {
@@ -377,15 +465,23 @@ export class DatabaseStorage implements IStorage {
     return existing.length;
   }
 
-  async eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number }> {
-    const [recs, apts, items, invs, allPets, allOwners] = await Promise.all([
+  async eraseAllLabReports(): Promise<number> {
+    const existing = await db.select().from(labReports);
+    await db.delete(labReports);
+    return existing.length;
+  }
+
+  async eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number }> {
+    const [recs, apts, items, invs, allPets, allOwners, allLabReports] = await Promise.all([
       db.select().from(medicalRecords),
       db.select().from(appointments),
       db.select().from(invoiceItems),
       db.select().from(invoices),
       db.select().from(pets),
       db.select().from(owners),
+      db.select().from(labReports),
     ]);
+    await db.delete(labReports);
     await db.delete(medicalRecords);
     await db.delete(appointments);
     await db.delete(invoiceItems);
@@ -399,7 +495,262 @@ export class DatabaseStorage implements IStorage {
       invoices: invs.length,
       pets: allPets.length,
       owners: allOwners.length,
+      labReports: allLabReports.length,
     };
+  }
+
+  async getInventoryItems(): Promise<InventoryItem[]> {
+    return db.select().from(inventoryItems);
+  }
+
+  async getInventoryItem(id: number): Promise<InventoryItem | undefined> {
+    const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+    return item;
+  }
+
+  async createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem> {
+    const [created] = await db.insert(inventoryItems).values(item).returning();
+    return created;
+  }
+
+  async updateInventoryItem(id: number, data: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined> {
+    const [updated] = await db.update(inventoryItems).set(data).where(eq(inventoryItems.id, id)).returning();
+    return updated;
+  }
+
+  async deleteInventoryItem(id: number): Promise<void> {
+    await db.delete(inventoryItems).where(eq(inventoryItems.id, id));
+  }
+
+  async getExpenses(): Promise<Expense[]> {
+    return db.select().from(expenses);
+  }
+
+  async createExpense(expense: InsertExpense): Promise<Expense> {
+    const [created] = await db.insert(expenses).values(expense).returning();
+    return created;
+  }
+
+  async deleteExpense(id: number): Promise<void> {
+    await db.delete(expenses).where(eq(expenses.id, id));
+  }
+
+  async getLabReportsByPetId(petId: number): Promise<LabReport[]> {
+    return db.select().from(labReports).where(eq(labReports.petId, petId));
+  }
+
+  async createLabReport(report: InsertLabReport): Promise<LabReport> {
+    const [created] = await db.insert(labReports).values(report).returning();
+    return created;
+  }
+
+  async getAllLabReports(): Promise<LabReport[]> {
+    return db.select().from(labReports).orderBy(desc(labReports.date));
+  }
+
+  async updateLabReport(id: number, data: Partial<InsertLabReport>): Promise<LabReport | undefined> {
+    const [updated] = await db.update(labReports).set(data).where(eq(labReports.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLabReport(id: number): Promise<void> {
+    await db.delete(labReports).where(eq(labReports.id, id));
+  }
+
+  // Suppliers
+  async getSuppliers(): Promise<Supplier[]> {
+    return db.select().from(suppliers);
+  }
+
+  async getSupplier(id: number): Promise<Supplier | undefined> {
+    const [s] = await db.select().from(suppliers).where(eq(suppliers.id, id));
+    return s;
+  }
+
+  async createSupplier(supplier: InsertSupplier): Promise<Supplier> {
+    const [created] = await db.insert(suppliers).values(supplier).returning();
+    return created;
+  }
+
+  async updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined> {
+    const [updated] = await db.update(suppliers).set(data).where(eq(suppliers.id, id)).returning();
+    return updated;
+  }
+
+  async deleteSupplier(id: number): Promise<void> {
+    await db.delete(suppliers).where(eq(suppliers.id, id));
+  }
+
+  // Purchase Orders
+  async getPurchaseOrders(): Promise<PurchaseOrder[]> {
+    return db.select().from(purchaseOrders);
+  }
+
+  async getPurchaseOrder(id: number): Promise<PurchaseOrder | undefined> {
+    const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id));
+    return po;
+  }
+
+  async createPurchaseOrder(order: InsertPurchaseOrder): Promise<PurchaseOrder> {
+    const [created] = await db.insert(purchaseOrders).values(order).returning();
+    return created;
+  }
+
+  async updatePurchaseOrder(id: number, data: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder | undefined> {
+    const [updated] = await db.update(purchaseOrders).set(data).where(eq(purchaseOrders.id, id)).returning();
+    return updated;
+  }
+
+  async deletePurchaseOrder(id: number): Promise<void> {
+    await db.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, id));
+    await db.delete(purchaseOrders).where(eq(purchaseOrders.id, id));
+  }
+
+  async getPurchaseOrderItems(purchaseOrderId: number): Promise<PurchaseOrderItem[]> {
+    return db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId));
+  }
+
+  async createPurchaseOrderItem(item: InsertPurchaseOrderItem): Promise<PurchaseOrderItem> {
+    const [created] = await db.insert(purchaseOrderItems).values(item).returning();
+    return created;
+  }
+
+  async deletePurchaseOrderItem(id: number): Promise<void> {
+    await db.delete(purchaseOrderItems).where(eq(purchaseOrderItems.id, id));
+  }
+
+  // Low stock
+  async getLowStockItems(): Promise<InventoryItem[]> {
+    return db.select().from(inventoryItems).where(
+      sql`${inventoryItems.quantity} <= ${inventoryItems.minQuantity}`
+    );
+  }
+
+  // Activity Logs
+  async createActivityLog(log: InsertActivityLog): Promise<ActivityLog> {
+    const [created] = await db.insert(activityLogs).values(log).returning();
+    return created;
+  }
+
+  async getActivityLogs(limit = 50, offset = 0, filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<ActivityLog[]> {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(activityLogs.userId, filters.userId));
+    if (filters?.entityType) conditions.push(eq(activityLogs.entityType, filters.entityType));
+    if (filters?.startDate) conditions.push(gte(activityLogs.timestamp, new Date(filters.startDate)));
+    if (filters?.endDate) conditions.push(lte(activityLogs.timestamp, new Date(filters.endDate + "T23:59:59")));
+
+    const query = db.select().from(activityLogs);
+    if (conditions.length > 0) {
+      return query.where(and(...conditions)).orderBy(desc(activityLogs.timestamp)).limit(limit).offset(offset);
+    }
+    return query.orderBy(desc(activityLogs.timestamp)).limit(limit).offset(offset);
+  }
+
+  async getActivityLogCount(filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<number> {
+    const conditions = [];
+    if (filters?.userId) conditions.push(eq(activityLogs.userId, filters.userId));
+    if (filters?.entityType) conditions.push(eq(activityLogs.entityType, filters.entityType));
+    if (filters?.startDate) conditions.push(gte(activityLogs.timestamp, new Date(filters.startDate)));
+    if (filters?.endDate) conditions.push(lte(activityLogs.timestamp, new Date(filters.endDate + "T23:59:59")));
+
+    const query = db.select({ count: sql<number>`count(*)` }).from(activityLogs);
+    if (conditions.length > 0) {
+      const [result] = await query.where(and(...conditions));
+      return Number(result.count);
+    }
+    const [result] = await query;
+    return Number(result.count);
+  }
+
+  // Pet Documents
+  async getPetDocuments(petId: number): Promise<PetDocument[]> {
+    return db.select().from(petDocuments).where(eq(petDocuments.petId, petId)).orderBy(desc(petDocuments.uploadedAt));
+  }
+
+  async createPetDocument(doc: InsertPetDocument): Promise<PetDocument> {
+    const [created] = await db.insert(petDocuments).values(doc).returning();
+    return created;
+  }
+
+  async deletePetDocument(id: number): Promise<void> {
+    await db.delete(petDocuments).where(eq(petDocuments.id, id));
+  }
+
+  // Species
+  async getSpecies(): Promise<Species[]> {
+    return db.select().from(species).orderBy(species.name);
+  }
+
+  async createSpecies(data: InsertSpecies): Promise<Species> {
+    const [created] = await db.insert(species).values(data).returning();
+    return created;
+  }
+
+  async deleteSpecies(id: number): Promise<void> {
+    await db.delete(species).where(eq(species.id, id));
+  }
+
+  // Dynamic Lab Configuration
+  async getLabCategories(): Promise<LabCategory[]> {
+    return db.select().from(labTestCategories).orderBy(labTestCategories.name);
+  }
+
+  async createLabCategory(category: InsertLabCategory): Promise<LabCategory> {
+    const [created] = await db.insert(labTestCategories).values(category).returning();
+    return created;
+  }
+
+  async updateLabCategory(id: number, data: Partial<InsertLabCategory>): Promise<LabCategory | undefined> {
+    const [updated] = await db.update(labTestCategories).set(data).where(eq(labTestCategories.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLabCategory(id: number): Promise<void> {
+    // Delete related tests first? Or rely on cascade (if set up)? SQLite/PG doesn't auto-cascade efficiently without FK constraints in schema definitions, which we have but let's be safe.
+    // Actually, simple delete for now.
+    await db.delete(labTestCategories).where(eq(labTestCategories.id, id));
+  }
+
+  async getLabTests(categoryId?: number): Promise<LabTest[]> {
+    if (categoryId) {
+      return db.select().from(labTests).where(eq(labTests.categoryId, categoryId)).orderBy(labTests.sortOrder, labTests.id);
+    }
+    return db.select().from(labTests).orderBy(labTests.categoryId, labTests.sortOrder);
+  }
+
+  async createLabTest(test: InsertLabTest): Promise<LabTest> {
+    const [created] = await db.insert(labTests).values(test).returning();
+    return created;
+  }
+
+  async updateLabTest(id: number, data: Partial<InsertLabTest>): Promise<LabTest | undefined> {
+    const [updated] = await db.update(labTests).set(data).where(eq(labTests.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLabTest(id: number): Promise<void> {
+    await db.delete(labTests).where(eq(labTests.id, id));
+  }
+
+  async getLabRefRanges(testId?: number): Promise<LabRefRange[]> {
+    if (testId) {
+      return db.select().from(labRefRanges).where(eq(labRefRanges.testId, testId));
+    }
+    return db.select().from(labRefRanges);
+  }
+
+  async createLabRefRange(range: InsertLabRefRange): Promise<LabRefRange> {
+    const [created] = await db.insert(labRefRanges).values(range).returning();
+    return created;
+  }
+
+  async updateLabRefRange(id: number, data: Partial<InsertLabRefRange>): Promise<LabRefRange | undefined> {
+    const [updated] = await db.update(labRefRanges).set(data).where(eq(labRefRanges.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLabRefRange(id: number): Promise<void> {
+    await db.delete(labRefRanges).where(eq(labRefRanges.id, id));
   }
 }
 

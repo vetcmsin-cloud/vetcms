@@ -9,12 +9,14 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorBoundary } from "@/components/error-boundary";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Patients from "@/pages/patients";
 import Owners from "@/pages/owners";
 import Appointments from "@/pages/appointments";
 import Records from "@/pages/records";
+import Lab from "@/pages/lab";
 import Login from "@/pages/login";
 import UserManagement from "@/pages/user-management";
 import AdminDashboard from "@/pages/admin-dashboard";
@@ -24,7 +26,17 @@ import AdminBilling from "@/pages/admin-billing";
 import AdminRoles from "@/pages/admin-roles";
 import AdminUserRights from "@/pages/admin-user-rights";
 import AdminData from "@/pages/admin-data";
+
 import AdminSettings from "@/pages/admin-settings";
+import AdminLabSettings from "@/pages/admin-lab-settings";
+import DesignStudioPage from "@/pages/design-studio-page";
+import InventoryPage from "@/pages/inventory";
+import AccountsPage from "@/pages/accounts";
+import SuppliersPage from "@/pages/suppliers";
+import PurchaseOrdersPage from "@/pages/purchase-orders";
+import StockReportPage from "@/pages/stock-report";
+import PurchaseReportPage from "@/pages/purchase-report";
+import ActivityLogPage from "@/pages/activity-log";
 
 function Router() {
   const { hasPermission } = useAuth();
@@ -35,13 +47,28 @@ function Router() {
       <Route path="/owners" component={Owners} />
       <Route path="/appointments" component={Appointments} />
       {hasPermission("medical_records.view", "medical_records.manage") && (
-        <Route path="/records" component={Records} />
+        <>
+          <Route path="/records" component={Records} />
+          <Route path="/lab" component={Lab} />
+        </>
       )}
       {hasPermission("user_management.view", "user_management.manage") && (
         <Route path="/users" component={UserManagement} />
       )}
+      {hasPermission("inventory.view", "inventory.manage") && (
+        <>
+          <Route path="/inventory" component={InventoryPage} />
+          <Route path="/suppliers" component={SuppliersPage} />
+          <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+          <Route path="/reports/stock" component={StockReportPage} />
+          <Route path="/reports/purchase" component={PurchaseReportPage} />
+        </>
+      )}
+      {hasPermission("accounts.view", "accounts.manage") && (
+        <Route path="/accounts" component={AccountsPage} />
+      )}
       {hasPermission("billing.view", "billing.manage") && (
-        <Route path="/admin/billing" component={AdminBilling} />
+        <Route path="/billing" component={AdminBilling} />
       )}
       {hasPermission("admin_dashboard.view") && (
         <>
@@ -51,7 +78,12 @@ function Router() {
           <Route path="/admin/roles" component={AdminRoles} />
           <Route path="/admin/user-rights" component={AdminUserRights} />
           <Route path="/admin/settings" component={AdminSettings} />
-          <Route path="/admin/data" component={AdminData} />
+          <Route path="/admin/lab-settings" component={AdminLabSettings} />
+          <Route path="/admin/design-studio/:type" component={DesignStudioPage} />
+          {hasPermission("data.erase") && (
+            <Route path="/admin/data" component={AdminData} />
+          )}
+          <Route path="/activity-log" component={ActivityLogPage} />
         </>
       )}
       <Route component={NotFound} />
@@ -75,7 +107,9 @@ function AuthenticatedApp() {
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-auto">
-            <Router />
+            <ErrorBoundary>
+              <Router />
+            </ErrorBoundary>
           </main>
         </div>
       </div>
@@ -109,7 +143,9 @@ function App() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <AppContent />
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>

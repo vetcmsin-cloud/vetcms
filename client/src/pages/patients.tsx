@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { format } from "date-fns";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,8 +28,23 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PatientChart } from "@/components/patient-chart";
 import { CameraCapture } from "@/components/camera-capture";
 import { FullscreenImage } from "@/components/fullscreen-image";
-import { Plus, Search, PawPrint, Weight, Calendar, Camera } from "lucide-react";
+import { Plus, Search, PawPrint, Weight, Calendar, Camera, Check, ChevronsUpDown } from "lucide-react";
 import type { Pet, Owner } from "@shared/schema";
+import { cn } from "@/lib/utils";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -38,6 +54,15 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
   const [cameraOpen, setCameraOpen] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
+
+  const [useExistingOwner, setUseExistingOwner] = useState(false);
+  const [selectedOwner, setSelectedOwner] = useState<Owner | null>(null);
+  const [comboboxOpen, setComboboxOpen] = useState(false);
+
+  const { data: owners } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
+    enabled: useExistingOwner
+  });
 
   const defaultForm = {
     name: "",
@@ -66,14 +91,22 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const ownerRes = await apiRequest("POST", "/api/owners", {
-        firstName: form.ownerFirstName,
-        lastName: form.ownerLastName,
-        phone: form.ownerPhone,
-        email: form.ownerEmail,
-        address: form.ownerAddress || undefined,
-      });
-      const owner = await ownerRes.json();
+      let ownerId;
+
+      if (useExistingOwner && selectedOwner) {
+        ownerId = selectedOwner.id;
+      } else {
+        const ownerRes = await apiRequest("POST", "/api/owners", {
+          firstName: form.ownerFirstName,
+          lastName: form.ownerLastName,
+          phone: form.ownerPhone,
+          email: form.ownerEmail,
+          address: form.ownerAddress || undefined,
+        });
+        const owner = await ownerRes.json();
+        ownerId = owner.id;
+      }
+
       const petRes = await apiRequest("POST", "/api/pets", {
         name: form.name,
         species: form.species,
@@ -83,7 +116,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
         gender: form.gender,
         color: form.color || undefined,
         microchip: form.microchip || undefined,
-        ownerId: owner.id,
+        ownerId: ownerId,
         imageUrl: form.imageUrl || undefined,
       });
       const pet = await petRes.json();
@@ -106,6 +139,8 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
       setForm(defaultForm);
       setPhotoPreview(null);
       setCapturedFile(null);
+      setUseExistingOwner(false);
+      setSelectedOwner(null);
       toast({ title: "Patient added", description: "New patient and owner have been registered successfully." });
     },
     onError: (err: Error) => {
@@ -113,7 +148,9 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
     },
   });
 
-  const canSubmit = form.name && form.breed && form.age && form.ownerFirstName && form.ownerLastName && form.ownerPhone && form.ownerEmail;
+  const canSubmit = form.name && form.age && (
+    (useExistingOwner && selectedOwner) || (!useExistingOwner && form.ownerFirstName && form.ownerPhone)
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -157,7 +194,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pet-name">Pet Name</Label>
+            <Label htmlFor="pet-name">Pet Name *</Label>
             <Input
               id="pet-name"
               placeholder="Enter pet name"
@@ -200,7 +237,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
             <Label htmlFor="pet-breed">Breed</Label>
             <Input
               id="pet-breed"
-              placeholder="Enter breed"
+              placeholder="Enter breed (optional)"
               value={form.breed}
               onChange={(e) => setForm({ ...form, breed: e.target.value })}
               data-testid="input-pet-breed"
@@ -208,7 +245,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pet-age">Age (years)</Label>
+              <Label htmlFor="pet-age">Age (years) *</Label>
               <Input
                 id="pet-age"
                 type="number"
@@ -254,62 +291,140 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
             </div>
           </div>
           <div className="border-t pt-4 mt-1">
-            <p className="text-sm font-medium mb-3">Owner Information</p>
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="owner-first-name">First Name</Label>
-                  <Input
-                    id="owner-first-name"
-                    placeholder="First name"
-                    value={form.ownerFirstName}
-                    onChange={(e) => setForm({ ...form, ownerFirstName: e.target.value })}
-                    data-testid="input-owner-first-name"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="owner-last-name">Last Name</Label>
-                  <Input
-                    id="owner-last-name"
-                    placeholder="Last name"
-                    value={form.ownerLastName}
-                    onChange={(e) => setForm({ ...form, ownerLastName: e.target.value })}
-                    data-testid="input-owner-last-name"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="owner-phone">Phone</Label>
-                <Input
-                  id="owner-phone"
-                  placeholder="Phone number"
-                  value={form.ownerPhone}
-                  onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })}
-                  data-testid="input-owner-phone"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="owner-email">Email</Label>
-                <Input
-                  id="owner-email"
-                  type="email"
-                  placeholder="Email address"
-                  value={form.ownerEmail}
-                  onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })}
-                  data-testid="input-owner-email"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="owner-address">Address (optional)</Label>
-                <Input
-                  id="owner-address"
-                  placeholder="Address"
-                  value={form.ownerAddress}
-                  onChange={(e) => setForm({ ...form, ownerAddress: e.target.value })}
-                  data-testid="input-owner-address"
-                />
-              </div>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium">Owner Information</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setUseExistingOwner(!useExistingOwner);
+                  setSelectedOwner(null);
+                }}
+                className="h-8 text-xs"
+              >
+                {useExistingOwner ? "Create New Owner" : "Select Existing Owner"}
+              </Button>
             </div>
+
+            {useExistingOwner ? (
+              <div className="flex flex-col gap-1.5">
+                <Label>Search Owner</Label>
+                <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={comboboxOpen}
+                      className="w-full justify-between"
+                    >
+                      {selectedOwner
+                        ? `${selectedOwner.firstName} ${selectedOwner.lastName} (${selectedOwner.phone})`
+                        : "Select owner..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command filter={(value, search) => {
+                      if (value.toLowerCase().includes(search.toLowerCase())) return 1;
+                      return 0;
+                    }}>
+                      <CommandInput placeholder="Search by name or phone..." />
+                      <CommandList>
+                        <CommandEmpty>No owner found.</CommandEmpty>
+                        <CommandGroup>
+                          <ScrollArea className="h-[200px]">
+                            {owners?.map((owner) => (
+                              <CommandItem
+                                key={owner.id}
+                                value={`${owner.firstName} ${owner.lastName} ${owner.phone}`}
+                                onSelect={() => {
+                                  setSelectedOwner(owner);
+                                  setComboboxOpen(false);
+                                }}
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selectedOwner?.id === owner.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{owner.firstName} {owner.lastName}</span>
+                                  <span className="text-xs text-muted-foreground">{owner.phone}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </ScrollArea>
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {selectedOwner && (
+                  <div className="p-3 bg-muted/40 rounded-md mt-2 text-sm">
+                    <p><span className="font-medium">Selected:</span> {selectedOwner.firstName} {selectedOwner.lastName}</p>
+                    <p><span className="text-muted-foreground">Phone:</span> {selectedOwner.phone}</p>
+                    <p><span className="text-muted-foreground">Email:</span> {selectedOwner.email || "N/A"}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="owner-first-name">First Name *</Label>
+                    <Input
+                      id="owner-first-name"
+                      placeholder="First name"
+                      value={form.ownerFirstName}
+                      onChange={(e) => setForm({ ...form, ownerFirstName: e.target.value })}
+                      data-testid="input-owner-first-name"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="owner-last-name">Last Name <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                    <Input
+                      id="owner-last-name"
+                      placeholder="Last name (optional)"
+                      value={form.ownerLastName}
+                      onChange={(e) => setForm({ ...form, ownerLastName: e.target.value })}
+                      data-testid="input-owner-last-name"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="owner-phone">Phone *</Label>
+                  <Input
+                    id="owner-phone"
+                    placeholder="Phone number"
+                    value={form.ownerPhone}
+                    onChange={(e) => setForm({ ...form, ownerPhone: e.target.value })}
+                    data-testid="input-owner-phone"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="owner-email">Email (optional)</Label>
+                  <Input
+                    id="owner-email"
+                    type="email"
+                    placeholder="Email address"
+                    value={form.ownerEmail}
+                    onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })}
+                    data-testid="input-owner-email"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="owner-address">Address (optional)</Label>
+                  <Input
+                    id="owner-address"
+                    placeholder="Address"
+                    value={form.ownerAddress}
+                    onChange={(e) => setForm({ ...form, ownerAddress: e.target.value })}
+                    data-testid="input-owner-address"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <Button
             onClick={() => mutation.mutate()}
@@ -337,7 +452,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
   const [form, setForm] = useState({
     name: pet.name,
     species: pet.species,
-    breed: pet.breed,
+    breed: pet.breed || "",
     age: String(pet.age),
     weight: pet.weight || "",
     gender: pet.gender,
@@ -424,7 +539,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-pet-name">Pet Name</Label>
+            <Label htmlFor="edit-pet-name">Pet Name *</Label>
             <Input
               id="edit-pet-name"
               value={form.name}
@@ -463,7 +578,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-pet-breed">Breed</Label>
+            <Label htmlFor="edit-pet-breed">Breed (optional)</Label>
             <Input
               id="edit-pet-breed"
               value={form.breed}
@@ -473,7 +588,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-pet-age">Age (years)</Label>
+              <Label htmlFor="edit-pet-age">Age (years) *</Label>
               <Input
                 id="edit-pet-age"
                 type="number"
@@ -531,7 +646,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.name || !form.breed || !form.age || !form.ownerId}
+            disabled={mutation.isPending || !form.name || !form.age || !form.ownerId}
             data-testid="button-submit-edit-pet"
           >
             {mutation.isPending ? "Saving..." : "Update Patient"}
@@ -551,7 +666,7 @@ function BookAppointmentDialog({ pet, owners, open, onOpenChange }: { pet: Pet; 
   const { toast } = useToast();
   const owner = owners.find((o) => o.id === pet.ownerId);
   const [form, setForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: format(new Date(), "yyyy-MM-dd"),
     time: "09:00",
     type: "Checkup",
     notes: "",
@@ -573,7 +688,7 @@ function BookAppointmentDialog({ pet, owners, open, onOpenChange }: { pet: Pet; 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       onOpenChange(false);
-      setForm({ date: new Date().toISOString().split("T")[0], time: "09:00", type: "Checkup", notes: "" });
+      setForm({ date: format(new Date(), "yyyy-MM-dd"), time: "09:00", type: "Checkup", notes: "" });
       toast({ title: "Appointment booked", description: `Appointment scheduled for ${pet.name}.` });
     },
     onError: (err: Error) => {
@@ -660,9 +775,28 @@ export default function Patients() {
   const [search, setSearch] = useState("");
   const { data: pets, isLoading } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
   const { data: owners } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
-
   const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
+
+  // Deep linking support
+  useEffect(() => {
+    if (isLoading || !pets) return;
+    const params = new URLSearchParams(window.location.search);
+    const petId = params.get("petId");
+    console.log("[Patients] Checking deep link. Search:", window.location.search, "petId:", petId);
+
+    if (petId) {
+      const pet = pets.find(p => p.id === parseInt(petId));
+      console.log("[Patients] Found pet:", pet ? pet.name : "Not Found");
+
+      if (pet) {
+        setSelectedPet(pet);
+        setChartOpen(true);
+        // Clear param to avoid reopening on refresh? Or keep it?
+        // Keep it for now, it's fine.
+      }
+    }
+  }, [pets, isLoading]);
   const [editPet, setEditPet] = useState<Pet | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [bookPet, setBookPet] = useState<Pet | null>(null);
@@ -672,7 +806,7 @@ export default function Patients() {
   const filteredPets = pets?.filter(
     (p) =>
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.breed.toLowerCase().includes(search.toLowerCase()) ||
+      (p.breed || "").toLowerCase().includes(search.toLowerCase()) ||
       p.species.toLowerCase().includes(search.toLowerCase())
   );
 

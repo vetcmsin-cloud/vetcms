@@ -42,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Pencil, Trash2, UserPlus, Shield, Eye, EyeOff } from "lucide-react";
 import type { User } from "@shared/schema";
@@ -64,7 +65,9 @@ function roleBadgeVariant(role: string) {
 function roleLabel(role: string) {
   switch (role) {
     case "superadmin":
-      return "Admin";
+      return "Super Admin";
+    case "admin":
+      return "Administrator";
     case "doctor":
       return "Doctor";
     case "receptionist":
@@ -81,19 +84,20 @@ function AddUserDialog() {
   const [form, setForm] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
     role: "receptionist",
   });
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/users", form);
+      const res = await apiRequest("POST", "/api/users", { ...form, permissions: [] });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       setOpen(false);
-      setForm({ name: "", email: "", password: "", role: "receptionist" });
+      setForm({ name: "", email: "", phone: "", password: "", role: "receptionist" });
       toast({ title: "User created", description: "New staff member has been added." });
     },
     onError: (err: Error) => {
@@ -123,6 +127,18 @@ function AddUserDialog() {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               data-testid="input-user-name"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="user-phone">Phone Number</Label>
+            <Input
+              id="user-phone"
+              type="tel"
+              placeholder="Enter mobile number"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              data-testid="input-user-phone"
+              required
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -173,7 +189,7 @@ function AddUserDialog() {
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.name || !form.email || !form.password}
+            disabled={mutation.isPending || !form.name || !form.email || !form.phone || !form.password}
             data-testid="button-submit-user"
           >
             {mutation.isPending ? "Creating..." : "Create User"}
@@ -190,13 +206,14 @@ function EditUserDialog({ user }: { user: SafeUser }) {
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
+    phone: user.phone || "",
     role: user.role,
     password: "",
   });
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const data: any = { name: form.name, email: form.email, role: form.role };
+      const data: any = { name: form.name, email: form.email, phone: form.phone, role: form.role };
       if (form.password) data.password = form.password;
       const res = await apiRequest("PATCH", `/api/users/${user.id}`, data);
       return res.json();
@@ -214,7 +231,7 @@ function EditUserDialog({ user }: { user: SafeUser }) {
   return (
     <Dialog open={open} onOpenChange={(v) => {
       setOpen(v);
-      if (v) setForm({ name: user.name, email: user.email, role: user.role, password: "" });
+      if (v) setForm({ name: user.name, email: user.email, phone: user.phone || "", role: user.role, password: "" });
     }}>
       <DialogTrigger asChild>
         <Button size="icon" variant="ghost" data-testid={`button-edit-user-${user.id}`}>
@@ -234,6 +251,17 @@ function EditUserDialog({ user }: { user: SafeUser }) {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               data-testid="input-edit-user-name"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-phone">Phone Number</Label>
+            <Input
+              id="edit-phone"
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              data-testid="input-edit-user-phone"
+              required
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -328,7 +356,12 @@ function DeleteUserButton({ user }: { user: SafeUser }) {
 }
 
 export default function UserManagement() {
+  const { user: currentUser } = useAuth();
   const { data: users, isLoading } = useQuery<SafeUser[]>({ queryKey: ["/api/users"] });
+
+  const filteredUsers = users?.filter(u =>
+    (currentUser?.role?.toLowerCase() === "superadmin") ? true : (u.role?.toLowerCase() !== "superadmin")
+  );
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-user-management">
@@ -373,7 +406,7 @@ export default function UserManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users?.map((user) => (
+                  {filteredUsers?.map((user) => (
                     <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -410,7 +443,7 @@ export default function UserManagement() {
 
           {/* Mobile Card View */}
           <div className="flex flex-col gap-3 sm:hidden">
-            {users?.map((user) => (
+            {filteredUsers?.map((user) => (
               <Card key={user.id} data-testid={`card-user-mobile-${user.id}`}>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">

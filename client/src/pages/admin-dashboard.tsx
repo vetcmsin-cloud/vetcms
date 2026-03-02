@@ -1,5 +1,8 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Database,
   IndianRupee,
@@ -9,7 +12,49 @@ import {
   Settings,
   Trash2,
   Wrench,
+  Users,
+  Clock,
+  FlaskConical,
 } from "lucide-react";
+
+// ... existing StatCard component ...
+
+function StatCard({
+  title,
+  value,
+  icon: Icon,
+  description,
+  loading,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ElementType;
+  description?: string;
+  loading?: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">{title}</span>
+            {loading ? (
+              <Skeleton className="h-7 w-16" />
+            ) : (
+              <span className="text-2xl font-bold tracking-tight">{value}</span>
+            )}
+            {description && (
+              <span className="text-[11px] text-muted-foreground">{description}</span>
+            )}
+          </div>
+          <div className="flex items-center justify-center w-10 h-10 rounded-md bg-primary/10">
+            <Icon className="w-5 h-5 text-primary" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 const adminCards = [
   {
@@ -27,13 +72,6 @@ const adminCards = [
     testId: "card-fees",
   },
   {
-    title: "Billing & Invoices",
-    description: "Create invoices, manage billing, and print receipts",
-    icon: Receipt,
-    url: "/admin/billing",
-    testId: "card-billing",
-  },
-  {
     title: "User Roles",
     description: "Create and configure user roles with permissions",
     icon: ShieldCheck,
@@ -48,8 +86,8 @@ const adminCards = [
     testId: "card-user-rights",
   },
   {
-    title: "Clinic Settings",
-    description: "Invoice design, clinic details, and login screen customization",
+    title: "Design Studio",
+    description: "Design invoices, lab reports, and medical reports with drag-and-drop canvas",
     icon: Wrench,
     url: "/admin/settings",
     testId: "card-settings",
@@ -61,9 +99,40 @@ const adminCards = [
     url: "/admin/data",
     testId: "card-data",
   },
+  {
+    title: "Lab Settings",
+    description: "Configure species, lab tests, and species-specific reference ranges",
+    icon: FlaskConical,
+    url: "/admin/lab-settings",
+    testId: "card-lab-settings",
+  },
 ];
 
 export default function AdminDashboard() {
+  const { user } = useAuth();
+  const { data: stats, isLoading } = useQuery<{
+    totalRevenue: number;
+    totalUsers: number;
+    pendingInvoices: number;
+  }>({
+    queryKey: ["/api/admin/stats"],
+  });
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const visibleCards = adminCards.filter(card => {
+    if (card.title === "Data Management") {
+      return user?.role === "superadmin";
+    }
+    return true;
+  });
+
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-admin-dashboard">
       <div className="flex flex-col gap-1">
@@ -76,8 +145,32 @@ export default function AdminDashboard() {
         </p>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard
+          title="Total Revenue"
+          value={formatCurrency(stats?.totalRevenue || 0)}
+          icon={IndianRupee}
+          loading={isLoading}
+          description="Total from paid invoices"
+        />
+        <StatCard
+          title="Total Users"
+          value={stats?.totalUsers || 0}
+          icon={Users}
+          loading={isLoading}
+          description="Registered system users"
+        />
+        <StatCard
+          title="Pending Invoices"
+          value={stats?.pendingInvoices || 0}
+          icon={Clock}
+          loading={isLoading}
+          description="Invoices awaiting payment"
+        />
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {adminCards.map((card) => (
+        {visibleCards.map((card) => (
           <Link key={card.url} href={card.url}>
             <Card className="hover-elevate cursor-pointer h-full" data-testid={card.testId}>
               <CardContent className="p-5">

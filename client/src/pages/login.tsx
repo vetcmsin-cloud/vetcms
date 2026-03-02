@@ -54,9 +54,9 @@ export default function Login() {
       <Card className="w-full max-w-sm relative z-10">
         <CardHeader className="text-center pb-2">
           <div className="flex items-center justify-center mb-4">
-            <img src={logoImg} alt="PetPoint Pro" className="w-12 h-12 rounded-md object-cover" />
+            <img src={settings?.clinicLogoUrl || logoImg} alt={settings?.clinicName || "PetPoint Pro"} className="w-12 h-12 rounded-md object-cover" />
           </div>
-          <CardTitle className="text-xl font-bold">PetPoint Pro</CardTitle>
+          <CardTitle className="text-xl font-bold">{settings?.clinicName || "PetPoint Pro"}</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
             Sign in to your clinic account
           </p>
@@ -115,23 +115,6 @@ export default function Login() {
               )}
             </Button>
           </form>
-          <div className="mt-6 pt-4 border-t">
-            <p className="text-[11px] text-muted-foreground text-center mb-2">Demo Credentials</p>
-            <div className="grid grid-cols-1 gap-1.5 text-[11px] text-muted-foreground">
-              <div className="flex items-center justify-between px-2 py-1 rounded bg-muted/40">
-                <span>Admin</span>
-                <span>admin@petpointvet.in / admin123</span>
-              </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded bg-muted/40">
-                <span>Doctor</span>
-                <span>varsha@petpointvet.in / doctor123</span>
-              </div>
-              <div className="flex items-center justify-between px-2 py-1 rounded bg-muted/40">
-                <span>Receptionist</span>
-                <span>rec@petpointvet.in / reception123</span>
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>

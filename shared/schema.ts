@@ -1,12 +1,20 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, decimal, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, decimal, jsonb, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { timestamp } from "drizzle-orm/pg-core";
+
+export const session = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: jsonb("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
 
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  phone: text("phone").notNull().default(""), // Added phone field
   password: text("password").notNull(),
   role: text("role").notNull().default("receptionist"),
   permissions: jsonb("permissions").$type<string[]>(),
@@ -15,8 +23,8 @@ export const users = pgTable("users", {
 export const owners = pgTable("owners", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
-  email: text("email").notNull(),
+  lastName: text("last_name"),
+  email: text("email"),
   phone: text("phone").notNull(),
   address: text("address"),
 });
@@ -25,14 +33,15 @@ export const pets = pgTable("pets", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   name: text("name").notNull(),
   species: text("species").notNull(),
-  breed: text("breed").notNull(),
+  breed: text("breed"),
   age: integer("age").notNull(),
   weight: decimal("weight", { precision: 5, scale: 2 }),
-  gender: text("gender").notNull(),
+  gender: text("gender").notNull().default("Male"),
   color: text("color"),
   microchip: text("microchip"),
   imageUrl: text("image_url"),
   ownerId: integer("owner_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().$defaultFn(() => new Date()),
 });
 
 export const appointments = pgTable("appointments", {
@@ -56,6 +65,8 @@ export const medicalRecords = pgTable("medical_records", {
   prescription: text("prescription"),
   veterinarian: text("veterinarian").notNull(),
   notes: text("notes"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const roles = pgTable("roles", {
@@ -89,9 +100,11 @@ export const invoices = pgTable("invoices", {
   total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
   notes: text("notes"),
   createdBy: integer("created_by"),
+  billedBy: integer("billed_by"),
   clinicName: text("clinic_name").default("PetPoint Pro Veterinary Clinic"),
   clinicAddress: text("clinic_address"),
   clinicPhone: text("clinic_phone"),
+  forwardedTo: text("forwarded_to"),
 });
 
 export const invoiceItems = pgTable("invoice_items", {
@@ -104,15 +117,18 @@ export const invoiceItems = pgTable("invoice_items", {
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({ id: true as const });
-export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true as const });
-export const insertPetSchema = createInsertSchema(pets).omit({ id: true as const });
-export const insertAppointmentSchema = createInsertSchema(appointments).omit({ id: true as const });
-export const insertMedicalRecordSchema = createInsertSchema(medicalRecords).omit({ id: true as const });
-export const insertRoleSchema = createInsertSchema(roles).omit({ id: true as const });
-export const insertFeeStructureSchema = createInsertSchema(feeStructures).omit({ id: true as const });
-export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true as const });
-export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true as const });
+export const insertUserSchema = createInsertSchema(users, {
+  permissions: z.array(z.string()),
+  phone: z.string().min(1, "Phone number is required")
+});
+export const insertOwnerSchema = createInsertSchema(owners);
+export const insertPetSchema = createInsertSchema(pets);
+export const insertAppointmentSchema = createInsertSchema(appointments);
+export const insertMedicalRecordSchema = createInsertSchema(medicalRecords);
+export const insertRoleSchema = createInsertSchema(roles, { permissions: z.array(z.string()) });
+export const insertFeeStructureSchema = createInsertSchema(feeStructures);
+export const insertInvoiceSchema = createInsertSchema(invoices);
+export const insertInvoiceItemSchema = createInsertSchema(invoiceItems);
 
 export const clinicSettings = pgTable("clinic_settings", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -120,7 +136,7 @@ export const clinicSettings = pgTable("clinic_settings", {
   settingValue: text("setting_value").notNull().default(""),
 });
 
-export const insertClinicSettingSchema = createInsertSchema(clinicSettings).omit({ id: true as const });
+export const insertClinicSettingSchema = createInsertSchema(clinicSettings);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -142,6 +158,222 @@ export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
 export type ClinicSetting = typeof clinicSettings.$inferSelect;
 export type InsertClinicSetting = z.infer<typeof insertClinicSettingSchema>;
+
+
+
+// Suppliers
+export const suppliers = pgTable("suppliers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  contactPerson: text("contact_person"),
+  email: text("email"),
+  phone: text("phone").notNull(),
+  address: text("address"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().$defaultFn(() => new Date()),
+});
+
+export const inventoryItems = pgTable("inventory_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  sku: text("sku").notNull(),
+  description: text("description"),
+  category: text("category").default("General"),
+  quantity: integer("quantity").notNull().default(0),
+  minQuantity: integer("min_quantity").notNull().default(5),
+  salePrice: decimal("sale_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  purchasePrice: decimal("purchase_price", { precision: 10, scale: 2 }).notNull().default("0"),
+  expiryDate: text("expiry_date"),
+  batchNumber: text("batch_number"),
+  supplier: text("supplier"),
+  supplierId: integer("supplier_id"),
+  lastUpdated: text("last_updated").notNull(),
+});
+
+// Purchase Orders
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  orderNumber: text("order_number").notNull().unique(),
+  supplierId: integer("supplier_id").notNull(),
+  date: text("date").notNull(),
+  status: text("status").notNull().default("pending"),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
+  receivedDate: text("received_date"),
+  createdBy: integer("created_by"),
+});
+
+export const purchaseOrderItems = pgTable("purchase_order_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  purchaseOrderId: integer("purchase_order_id").notNull(),
+  inventoryItemId: integer("inventory_item_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+});
+
+export const expenses = pgTable("expenses", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  date: text("date").notNull(),
+  description: text("description").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  category: text("category").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  notes: text("notes"),
+  recordedBy: integer("recorded_by"),
+});
+
+export const insertSupplierSchema = createInsertSchema(suppliers);
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems);
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders);
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems);
+export const insertExpenseSchema = createInsertSchema(expenses);
+
+export type Supplier = typeof suppliers.$inferSelect;
+export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
+export type Expense = typeof expenses.$inferSelect;
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+
+export const INVENTORY_CATEGORIES = [
+  "Medicines",
+  "Surgical",
+  "Consumables",
+  "Lab",
+  "Equipment",
+  "General",
+  "Other",
+] as const;
+
+export const labReports = pgTable("lab_reports", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  petId: integer("pet_id").notNull(),
+  date: text("date").notNull(),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  result: text("result"),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  fileUrl: text("file_url"),
+  details: jsonb("details").$type<HematologyData | BloodChemistryData | BiochemistryData>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertLabReportSchema = createInsertSchema(labReports);
+export type LabReport = typeof labReports.$inferSelect;
+export type InsertLabReport = z.infer<typeof insertLabReportSchema>;
+
+export interface HematologyData {
+  rbc?: string;
+  hb?: string;
+  pcv?: string;
+  wbc?: string;
+  platelet?: string;
+  mcv?: string;
+  mch?: string;
+  mchc?: string;
+  neutrophils?: string;
+  lymphocytes?: string;
+  monocytes?: string;
+  eosinophils?: string;
+  basophils?: string;
+}
+
+export interface BloodChemistryData {
+  glucose?: string;
+  urea?: string;
+  creatinine?: string;
+  alt?: string;
+  ast?: string;
+  alp?: string;
+  totalProtein?: string;
+  albumin?: string;
+  globulin?: string;
+  totalBilirubin?: string;
+  sodium?: string;
+  potassium?: string;
+  chloride?: string;
+  calcium?: string;
+  phosphorus?: string;
+}
+
+export interface BiochemistryData {
+  bio_glucose?: string;
+  bio_urea?: string;
+  bio_creatinine?: string;
+  bio_alt?: string;
+  bio_ast?: string;
+  bio_alp?: string;
+  bio_totalProtein?: string;
+  bio_albumin?: string;
+  bio_globulin?: string;
+  bio_totalBilirubin?: string;
+  bio_sodium?: string;
+  bio_potassium?: string;
+  bio_chloride?: string;
+  bio_calcium?: string;
+  bio_phosphorus?: string;
+}
+
+export const LAB_REPORT_CATEGORIES = [
+  "Hematology", // Merged with CBC Panel
+  "Biochemistry", // Merged with Biochemistry Panel
+  "Urinalysis",
+  "Faecal Sample", // Merged with Faecal Panel
+  "Imaging",
+  "Rapid Tests",
+  "Microbiology",
+  "Endocrine",
+  "Reproductive"
+] as const;
+
+export const activityLogs = pgTable("activity_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id"),
+  userName: text("user_name").notNull(),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id"),
+  details: text("details"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export const insertActivityLogSchema = createInsertSchema(activityLogs);
+export type ActivityLog = typeof activityLogs.$inferSelect;
+export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
+
+export const petDocuments = pgTable("pet_documents", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  petId: integer("pet_id").notNull(),
+  fileUrl: text("file_url").notNull(),
+  fileName: text("file_name").notNull(),
+  category: text("category").default("General"),
+  notes: text("notes"),
+  uploadedBy: integer("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
+export const insertPetDocumentSchema = createInsertSchema(petDocuments);
+export type PetDocument = typeof petDocuments.$inferSelect;
+export type InsertPetDocument = z.infer<typeof insertPetDocumentSchema>;
+
+export const DOCUMENT_CATEGORIES = [
+  "General",
+  "Vaccination",
+  "Prescription",
+  "Lab Result",
+  "X-Ray",
+  "Surgery",
+  "Insurance",
+  "Other",
+] as const;
 
 export const ALL_PERMISSIONS = [
   "dashboard.view",
@@ -172,6 +404,57 @@ export const ALL_PERMISSIONS = [
   "backup.export",
   "admin_dashboard.view",
   "data.erase",
+  "inventory.view",
+  "inventory.manage",
+  "accounts.view",
+  "accounts.manage",
+  "activity_log.view",
 ] as const;
 
 export type Permission = typeof ALL_PERMISSIONS[number];
+
+export const labTestCategories = pgTable("lab_test_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // e.g., "CBC Panel", "Biochemistry Panel"
+  description: text("description"),
+});
+
+export const labTests = pgTable("lab_tests", {
+  id: serial("id").primaryKey(),
+  categoryId: integer("category_id").notNull(),
+  name: text("name").notNull(), // e.g., "Hemoglobin", "Color"
+  section: text("section"), // e.g., "Physical", "Chemical" (Grouping)
+  unit: text("unit"), // e.g., "g/dL", "/HPF"
+  sortOrder: integer("sort_order").default(0),
+});
+
+export const species = pgTable("species", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+});
+
+export const labRefRanges = pgTable("lab_ref_ranges", {
+  id: serial("id").primaryKey(),
+  testId: integer("test_id").notNull(),
+  species: text("species").notNull(), // "Canine", "Feline"
+  breed: text("breed"), // Specific breed or null for all
+  min: text("min"),
+  max: text("max"),
+  refText: text("ref_text"), // For text-based ranges like "Negative"
+});
+
+export const insertLabCategorySchema = createInsertSchema(labTestCategories);
+export type InsertLabCategory = z.infer<typeof insertLabCategorySchema>;
+export type LabCategory = typeof labTestCategories.$inferSelect;
+
+export const insertLabTestSchema = createInsertSchema(labTests);
+export type InsertLabTest = z.infer<typeof insertLabTestSchema>;
+export type LabTest = typeof labTests.$inferSelect;
+
+export const insertSpeciesSchema = createInsertSchema(species);
+export const insertLabRefRangeSchema = createInsertSchema(labRefRanges);
+export type InsertLabRefRange = z.infer<typeof insertLabRefRangeSchema>;
+export type Species = typeof species.$inferSelect;
+export type InsertSpecies = z.infer<typeof insertSpeciesSchema>;
+export type LabRefRange = typeof labRefRanges.$inferSelect;
+

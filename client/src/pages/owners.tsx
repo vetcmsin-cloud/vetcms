@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +63,7 @@ function AddOwnerDialog() {
         <div className="flex flex-col gap-4 mt-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="owner-first">First Name</Label>
+              <Label htmlFor="owner-first">First Name <span className="text-destructive">*</span></Label>
               <Input
                 id="owner-first"
                 placeholder="First name"
@@ -72,7 +73,7 @@ function AddOwnerDialog() {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="owner-last">Last Name</Label>
+              <Label htmlFor="owner-last">Last Name <span className="text-xs text-muted-foreground">(optional)</span></Label>
               <Input
                 id="owner-last"
                 placeholder="Last name"
@@ -83,7 +84,7 @@ function AddOwnerDialog() {
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="owner-email">Email</Label>
+            <Label htmlFor="owner-email">Email <span className="text-xs text-muted-foreground">(optional)</span></Label>
             <Input
               id="owner-email"
               type="email"
@@ -115,7 +116,7 @@ function AddOwnerDialog() {
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.firstName || !form.lastName || !form.email || !form.phone}
+            disabled={mutation.isPending || !form.firstName || !form.phone}
             data-testid="button-submit-owner"
           >
             {mutation.isPending ? "Adding..." : "Register Owner"}
@@ -128,13 +129,14 @@ function AddOwnerDialog() {
 
 export default function Owners() {
   const [search, setSearch] = useState("");
+  const [, setLocation] = useLocation();
   const { data: owners, isLoading } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
   const { data: pets } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
 
   const filteredOwners = owners?.filter(
     (o) =>
-      `${o.firstName} ${o.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
-      o.email.toLowerCase().includes(search.toLowerCase()) ||
+      `${o.firstName} ${o.lastName || ''}`.toLowerCase().includes(search.toLowerCase()) ||
+      (o.email || '').toLowerCase().includes(search.toLowerCase()) ||
       o.phone.includes(search)
   );
 
@@ -187,7 +189,7 @@ export default function Owners() {
                   <div className="flex items-start gap-3">
                     <Avatar className="w-11 h-11">
                       <AvatarFallback className="bg-chart-3/10 text-chart-3 font-semibold text-sm">
-                        {owner.firstName.charAt(0)}{owner.lastName.charAt(0)}
+                        {owner.firstName.charAt(0)}{owner.lastName?.charAt(0) || ''}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex flex-col gap-1 flex-1 min-w-0">
@@ -213,7 +215,15 @@ export default function Owners() {
                           {ownerPets.length} pet{ownerPets.length !== 1 ? "s" : ""}
                         </Badge>
                         {ownerPets.slice(0, 2).map((p) => (
-                          <Badge key={p.id} variant="outline" className="text-[10px]">
+                          <Badge
+                            key={p.id}
+                            variant="outline"
+                            className="text-[10px] cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent card click propagation if any
+                              setLocation(`/patients?petId=${p.id}`);
+                            }}
+                          >
                             {p.name}
                           </Badge>
                         ))}
