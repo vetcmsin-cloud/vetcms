@@ -55,6 +55,10 @@ const AVAILABLE_FIELDS: { key: InvoiceFieldKey; label: string; icon: any; width?
     { key: "customerEmail", label: "Customer Email", icon: Mail },
     { key: "patientName", label: "Patient Name", icon: User },
     { key: "ownerName", label: "Owner Name", icon: User },
+    { key: "patientGender", label: "Patient Gender", icon: User },
+    { key: "patientAge", label: "Patient Age", icon: User },
+    { key: "patientSpecies", label: "Patient Species", icon: User },
+    { key: "patientBreed", label: "Patient Breed", icon: User },
     { key: "serialNumber", label: "Sl. No.", icon: Hash },
     { key: "clinicPhone", label: "Clinic Phone", icon: Phone },
     { key: "doctorName", label: "Doctor Name", icon: User },
@@ -365,6 +369,10 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
             case "customerEmail": return d.ownerEmail;
             case "patientName": return d.patientName;
             case "ownerName": return d.ownerName;
+            case "patientGender": return "Male";
+            case "patientAge": return "3 Years";
+            case "patientSpecies": return "Canine";
+            case "patientBreed": return "Labrador";
             // case "serialNumber": return d.items.length; // Count
             // case "serialNumber": return d.items.map((_, i) => i + 1).join("\n"); // If we want list
             case "clinicPhone": return s.upiPhone || settings.clinicPhone || "9999999999";
@@ -663,8 +671,8 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
                             transform: `scale(${zoom})`,
                             // Background Image (Letterhead)
                             backgroundImage: (isA5 && settings.invoiceBackgroundImage_a5) || settings.invoiceBackgroundImage ? `url(${(isA5 && settings.invoiceBackgroundImage_a5) ? settings.invoiceBackgroundImage_a5 : settings.invoiceBackgroundImage})` : undefined,
-                            backgroundSize: "contain",
-                            backgroundPosition: "center",
+                            backgroundSize: "100% 100%",
+                            backgroundPosition: "top left",
                             backgroundRepeat: "no-repeat",
                             // If no image, show white paper
                         }}

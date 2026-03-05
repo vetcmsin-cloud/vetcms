@@ -1,5 +1,5 @@
 
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { InvoiceSection, InvoiceFieldKey } from "./types";
 import {
@@ -97,6 +97,10 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
             case "customerEmail": return invoice?.billToEmail || invoice?.ownerEmail || "";
             case "patientName": return invoice?.patientName || invoice?.petName || "";
             case "ownerName": return invoice?.ownerName || "";
+            case "patientGender": return invoice?.petGender || invoice?.gender || "";
+            case "patientAge": return invoice?.petAge != null ? `${invoice.petAge} Year${invoice.petAge === 1 ? "" : "s"}` : (invoice?.age != null ? `${invoice.age} Year${invoice.age === 1 ? "" : "s"}` : "");
+            case "patientSpecies": return invoice?.petSpecies || invoice?.species || "";
+            case "patientBreed": return invoice?.petBreed || invoice?.breed || "";
             case "clinicPhone": return settings.upiPhone || settings.clinicPhone;
             case "doctorName": return settings.doctorName || invoice?.createdByName || "";
             case "doctorPhone": return invoice?.createdByPhone || "";
@@ -150,77 +154,138 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
                             minHeight: isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px"),
                             height: className?.includes("min-h-0") ? "100%" : (isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px")),
                             backgroundImage: bgImage ? `url(${bgImage})` : undefined,
-                            backgroundSize: "contain",
-                            backgroundPosition: "center",
+                            backgroundSize: "100% 100%",
+                            backgroundPosition: "top left",
                             backgroundRepeat: "no-repeat",
                             position: "relative"
                         }}
 
                     >
-                        {sections.filter(s => s.isVisible).map(section => {
-                            // Conditional Rendering Logic
-                            if (!isLastPage) {
-                                // Hide footer elements on non-last pages
-                                if (FOOTER_SECTIONS.includes(section.type)) return null;
-                                if (section.type === "field" && section.field && FOOTER_FIELDS.includes(section.field)) return null;
-                            }
+                        {(() => {
+                            const ITEM_LIST_FIELDS: InvoiceFieldKey[] = ["serialNumber", "description", "quantity", "unitPrice", "lineTotal"];
+                            const visibleSections = sections.filter(s => s.isVisible);
+                            const listSections = visibleSections.filter(s => s.type === "field" && s.field && ITEM_LIST_FIELDS.includes(s.field));
 
                             return (
-                                <div
-                                    key={section.id}
-                                    style={{
-                                        position: "absolute",
-                                        left: `${section.x}px`,
-                                        top: `${section.y}px`,
-                                        width: `${section.width}px`,
-                                        fontSize: section.styles?.fontSize,
-                                        fontWeight: section.styles?.fontWeight,
-                                        color: section.styles?.color,
-                                        zIndex: 10
-                                    }}
-                                    className={cn(
-                                        "break-words",
-                                        section.type === "stamp" && "pointer-events-none"
-                                    )}
-                                >
-                                    {(() => {
-                                        switch (section.type) {
-                                            case "header": return <InvoiceHeader settings={settings} invoice={pageInvoice} section={section} logoPx={48} />;
-                                            case "grid": return <InvoiceGrid settings={settings} invoice={pageInvoice} section={section} logoPx={48} />;
-                                            // Pass the sliced pageInvoice to table
-                                            case "table": return <InvoiceTable settings={settings} invoice={pageInvoice} section={section} logoPx={48} startIndex={startIdx} />;
+                                <>
+                                    {visibleSections.map(section => {
+                                        // Skip the list sections in the normal absolute-position loop
+                                        // as they will be grouped and rendered together for dynamic row-height syncing!
+                                        if (listSections.some(ls => ls.id === section.id)) return null;
 
-                                            // Totals and Payments render normally (data is from full invoice usually, but these are footer elements so they only show on last page)
-                                            // We use 'invoice' (full) for totals because subtotal/total should be the invoice total, not page total, unless requested otherwise.
-                                            // User requested "move ... subtotal, grand total ... to next page". Usually this means the final values.
-                                            case "totals": return <div style={{ width: '100%' }}><InvoiceTotals settings={settings} invoice={invoice} section={section} logoPx={48} /></div>;
-                                            case "payment": return <InvoicePayment settings={settings} invoice={invoice} section={section} logoPx={48} />;
-                                            case "footer": return <InvoiceFooter settings={settings} invoice={invoice} section={section} logoPx={48} />;
-
-                                            case "text": return <div className="whitespace-pre-wrap">{section.content}</div>;
-                                            case "spacer": return <InvoiceSpacer section={section} />;
-                                            case "stamp":
-                                                if (invoice?.status !== "paid") return null;
-                                                const stampSrc = settings.invoicePaidStampImage;
-                                                return stampSrc ? <img src={stampSrc} alt="PAID" className="w-full h-full object-contain opacity-80" /> : <InvoiceStamp settings={settings} invoice={invoice} section={section} />;
-                                            case "image":
-                                                const src = settings.invoiceLogoImage || "";
-                                                return src ? <img src={src} alt="Logo" className="w-full h-full object-contain" /> : null;
-
-                                            case "field":
-                                                if (!section.field) return null;
-                                                const val = getFieldValue(section.field);
-                                                if (section.field === "qrCode") {
-                                                    return val;
-                                                }
-                                                return <span className={cn("inline-block w-full whitespace-pre-line", section.styles?.fontWeight === "bold" ? "font-bold" : "")}>{val}</span>;
-
-                                            default: return null;
+                                        // Conditional Rendering Logic
+                                        if (!isLastPage) {
+                                            // Hide footer elements on non-last pages
+                                            if (FOOTER_SECTIONS.includes(section.type)) return null;
+                                            if (section.type === "field" && section.field && FOOTER_FIELDS.includes(section.field)) return null;
                                         }
+
+                                        return (
+                                            <div
+                                                key={section.id}
+                                                style={{
+                                                    position: "absolute",
+                                                    left: `${section.x}px`,
+                                                    top: `${section.y}px`,
+                                                    width: `${section.width}px`,
+                                                    fontSize: section.styles?.fontSize,
+                                                    fontWeight: section.styles?.fontWeight,
+                                                    color: section.styles?.color,
+                                                    zIndex: 10
+                                                }}
+                                                className={cn(
+                                                    "break-words",
+                                                    section.type === "stamp" && "pointer-events-none"
+                                                )}
+                                            >
+                                                {(() => {
+                                                    switch (section.type) {
+                                                        case "header": return <InvoiceHeader settings={settings} invoice={pageInvoice} section={section} logoPx={48} />;
+                                                        case "grid": return <InvoiceGrid settings={settings} invoice={pageInvoice} section={section} logoPx={48} />;
+                                                        case "table": return <InvoiceTable settings={settings} invoice={pageInvoice} section={section} logoPx={48} startIndex={startIdx} />;
+                                                        case "totals": return <div style={{ width: '100%' }}><InvoiceTotals settings={settings} invoice={invoice} section={section} logoPx={48} /></div>;
+                                                        case "payment": return <InvoicePayment settings={settings} invoice={invoice} section={section} logoPx={48} />;
+                                                        case "footer": return <InvoiceFooter settings={settings} invoice={invoice} section={section} logoPx={48} />;
+
+                                                        case "text": return <div className="whitespace-pre-wrap">{section.content}</div>;
+                                                        case "spacer": return <InvoiceSpacer section={section} />;
+                                                        case "stamp":
+                                                            if (invoice?.status !== "paid") return null;
+                                                            const stampSrc = settings.invoicePaidStampImage;
+                                                            return stampSrc ? <img src={stampSrc} alt="PAID" className="w-full h-full object-contain opacity-80" /> : <InvoiceStamp settings={settings} invoice={invoice} section={section} />;
+                                                        case "image":
+                                                            const src = settings.invoiceLogoImage || "";
+                                                            return src ? <img src={src} alt="Logo" className="w-full h-full object-contain" /> : null;
+
+                                                        case "field":
+                                                            if (!section.field) return null;
+                                                            const val = getFieldValue(section.field);
+                                                            if (section.field === "qrCode") {
+                                                                return val;
+                                                            }
+                                                            return <span className={cn("inline-block w-full whitespace-pre-line", section.styles?.fontWeight === "bold" ? "font-bold" : "")}>{val}</span>;
+
+                                                        default: return null;
+                                                    }
+                                                })()}
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* DYNAMIC LIST FIELDS RENDERER - Synthesizes independent fields into a dynamic row structure! */}
+                                    {listSections.length > 0 && pageInvoice?.items?.length > 0 && (() => {
+                                        // The entire list starts exactly where the highest placed field was placed
+                                        const listMinY = Math.min(...listSections.map(s => s.y));
+                                        return (
+                                            <div style={{ position: "absolute", top: `${listMinY}px`, left: 0, width: "100%", zIndex: 10 }}>
+                                                {pageInvoice.items.map((item: any, i: number) => {
+                                                    // Sort sections left-to-right to layout them sequentially using flex margins
+                                                    const sortedSections = [...listSections].sort((a, b) => a.x - b.x);
+                                                    return (
+                                                        <div key={i} style={{
+                                                            display: "flex",
+                                                            width: "100%",
+                                                            borderBottom: "1px dashed #e5e7eb",
+                                                            paddingTop: "6px",
+                                                            paddingBottom: "6px"
+                                                        }}>
+                                                            {sortedSections.map((section, idx) => {
+                                                                const prevRight = idx === 0 ? 0 : sortedSections[idx - 1].x + sortedSections[idx - 1].width;
+                                                                const marginLeft = Math.max(0, section.x - prevRight);
+
+                                                                let v = "";
+                                                                switch (section.field) {
+                                                                    case "serialNumber": v = String(startIdx + i + 1); break;
+                                                                    case "description": v = item.description || ""; break;
+                                                                    case "quantity": v = String(item.quantity); break;
+                                                                    case "unitPrice": v = formatCurrency(item.unitPrice); break;
+                                                                    case "lineTotal": v = formatCurrency(item.total); break;
+                                                                }
+                                                                return (
+                                                                    <div key={section.id} style={{
+                                                                        marginLeft: `${marginLeft}px`,
+                                                                        width: `${section.width}px`,
+                                                                        flexShrink: 0,
+                                                                        fontSize: section.styles?.fontSize,
+                                                                        fontWeight: section.styles?.fontWeight as any || undefined,
+                                                                        color: section.styles?.color,
+                                                                        wordBreak: "break-word",
+                                                                        whiteSpace: "pre-wrap",
+                                                                        textAlign: section.styles?.textAlign as any || "left",
+                                                                    }}>
+                                                                        {v}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
                                     })()}
-                                </div>
+                                </>
                             );
-                        })}
+                        })()}
                         {/* Add Page Number if multiple pages? User didn't ask. */}
                     </div>
                 );

@@ -42,7 +42,7 @@ export function MedicalReportRenderer({ settings, pet, owner, records, type, dat
         if (key === "ownerPhone") return owner.phone || "";
         if (key === "species") return pet.species;
         if (key === "breed") return pet.breed || "N/A";
-        if (key === "age") return pet.age.toString();
+        if (key === "age") return [pet.age > 0 ? `${pet.age} year${pet.age !== 1 ? 's' : ''}` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths} month${pet.ageMonths !== 1 ? 's' : ''}` : ""].filter(Boolean).join(" ") || "< 1 month";
         if (key === "weight") return pet.weight ? `${pet.weight} kg` : "N/A";
         if (key === "gender") return pet.gender;
 
@@ -162,7 +162,7 @@ export function MedicalReportRenderer({ settings, pet, owner, records, type, dat
                     </div>
                     <div>
                         <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Age / Weight</div>
-                        <div className="font-medium text-slate-900">{pet.age} years {pet.weight ? `\u2022 ${pet.weight}kg` : ''}</div>
+                        <div className="font-medium text-slate-900">{[pet.age > 0 ? `${pet.age} year${pet.age !== 1 ? 's' : ''}` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths} month${pet.ageMonths !== 1 ? 's' : ''}` : ""].filter(Boolean).join(" ") || "< 1 month"} {pet.weight ? `\u2022 ${pet.weight}kg` : ''}</div>
                     </div>
                 </div>
                 <div className="flex-1 space-y-3">

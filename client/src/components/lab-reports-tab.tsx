@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import {
     Accordion,
     AccordionContent,
@@ -61,6 +62,8 @@ interface LabReportsTabProps {
 
 export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
     const { toast } = useToast();
+    const { hasPermission } = useAuth();
+    const canCreateReport = hasPermission("medical_records.create");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [printReportId, setPrintReportId] = useState<number | null>(null);
     const [isScanning, setIsScanning] = useState(false);
@@ -490,265 +493,267 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
 
             <div className="flex justify-between items-center">
                 <h3 className="text-lg font-medium">Laboratory</h3>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <DialogTrigger asChild>
-                        <Button className="gap-2">
-                            <Plus className="h-4 w-4" />
-                            Add Report
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
-                            <DialogTitle>Add Lab Report</DialogTitle>
-                        </DialogHeader>
-                        <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="category"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Category</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                {canCreateReport && (
+                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button className="gap-2">
+                                <Plus className="h-4 w-4" />
+                                Add Report
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
+                            <DialogHeader>
+                                <DialogTitle>Add Lab Report</DialogTitle>
+                            </DialogHeader>
+                            <Form {...form}>
+                                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <FormField
+                                            control={form.control}
+                                            name="category"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Category</FormLabel>
+                                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormControl>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Select type" />
+                                                            </SelectTrigger>
+                                                        </FormControl>
+                                                        <SelectContent>
+                                                            {LAB_REPORT_CATEGORIES.map(cat => (
+                                                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                                            ))}
+                                                            <SelectItem value="Hematology & Blood Chemistry">Hematology & Blood Chemistry</SelectItem>
+                                                            <SelectItem value="Blood Chemistry">Blood Chemistry</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
+                                            name="date"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Date</FormLabel>
                                                     <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select type" />
-                                                        </SelectTrigger>
+                                                        <Input type="date" {...field} />
                                                     </FormControl>
-                                                    <SelectContent>
-                                                        {LAB_REPORT_CATEGORIES.map(cat => (
-                                                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                                                        ))}
-                                                        <SelectItem value="Hematology & Blood Chemistry">Hematology & Blood Chemistry</SelectItem>
-                                                        <SelectItem value="Blood Chemistry">Blood Chemistry</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
                                     <FormField
                                         control={form.control}
-                                        name="date"
+                                        name="title"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Date</FormLabel>
+                                                <FormLabel>Report Title</FormLabel>
                                                 <FormControl>
-                                                    <Input type="date" {...field} />
+                                                    <Input placeholder="e.g. Annual Blood Work" {...field} />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
                                         )}
                                     />
-                                </div>
-                                <FormField
-                                    control={form.control}
-                                    name="title"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Report Title</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="e.g. Annual Blood Work" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                {(category === "Hematology" || category === "Hematology & Blood Chemistry") && (
-                                    <div className="border p-4 rounded-md space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="font-semibold text-sm uppercase">Hematology (CBC) Details</h4>
-                                            <div className="flex items-center gap-2">
-                                                <Input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    capture="environment"
-                                                    className="hidden"
-                                                    id="cbc-camera-upload"
-                                                    onChange={handleCbcImageUpload}
-                                                />
-                                                <DropdownMenu onOpenChange={(open) => {
-                                                    if (open) fetchRecentMindray();
-                                                }}>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button
-                                                            type="button"
-                                                            variant="default"
-                                                            size="sm"
-                                                            disabled={isReceiving}
-                                                            className="bg-green-600 hover:bg-green-700 text-white"
-                                                        >
-                                                            {isReceiving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
-                                                            Receive from Machine
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent className="w-64" align="end">
-                                                        <DropdownMenuLabel>Mindray BC-20s Results</DropdownMenuLabel>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem onSelect={() => handleReceiveFromMachine()}>
-                                                            Load Latest Result
-                                                        </DropdownMenuItem>
+                                    {(category === "Hematology" || category === "Hematology & Blood Chemistry") && (
+                                        <div className="border p-4 rounded-md space-y-4">
+                                            <div className="flex justify-between items-center">
+                                                <h4 className="font-semibold text-sm uppercase">Hematology (CBC) Details</h4>
+                                                <div className="flex items-center gap-2">
+                                                    <Input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        capture="environment"
+                                                        className="hidden"
+                                                        id="cbc-camera-upload"
+                                                        onChange={handleCbcImageUpload}
+                                                    />
+                                                    <DropdownMenu onOpenChange={(open) => {
+                                                        if (open) fetchRecentMindray();
+                                                    }}>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button
+                                                                type="button"
+                                                                variant="default"
+                                                                size="sm"
+                                                                disabled={isReceiving}
+                                                                className="bg-green-600 hover:bg-green-700 text-white"
+                                                            >
+                                                                {isReceiving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wifi className="h-4 w-4 mr-2" />}
+                                                                Receive from Machine
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent className="w-64" align="end">
+                                                            <DropdownMenuLabel>Mindray BC-20s Results</DropdownMenuLabel>
+                                                            <DropdownMenuSeparator />
+                                                            <DropdownMenuItem onSelect={() => handleReceiveFromMachine()}>
+                                                                Load Latest Result
+                                                            </DropdownMenuItem>
 
-                                                        {(recentMindrayResults?.length || 0) > 0 && (
-                                                            <>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuLabel className="text-xs text-muted-foreground">Recent Test Results</DropdownMenuLabel>
-                                                                {recentMindrayResults?.slice(0, 10).map((res, i) => (
-                                                                    <DropdownMenuItem
-                                                                        key={i}
-                                                                        onSelect={() => handleReceiveFromMachine(res)}
-                                                                        className="flex justify-between items-center cursor-pointer"
-                                                                    >
-                                                                        <div className="flex flex-col">
-                                                                            <span className="font-medium">Sample: {res.sampleId || "Unknown"}</span>
-                                                                            <span className="text-[10px] text-muted-foreground">
-                                                                                Values: {Object.keys(res.data).length} detected
+                                                            {(recentMindrayResults?.length || 0) > 0 && (
+                                                                <>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuLabel className="text-xs text-muted-foreground">Recent Test Results</DropdownMenuLabel>
+                                                                    {recentMindrayResults?.slice(0, 10).map((res, i) => (
+                                                                        <DropdownMenuItem
+                                                                            key={i}
+                                                                            onSelect={() => handleReceiveFromMachine(res)}
+                                                                            className="flex justify-between items-center cursor-pointer"
+                                                                        >
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-medium">Sample: {res.sampleId || "Unknown"}</span>
+                                                                                <span className="text-[10px] text-muted-foreground">
+                                                                                    Values: {Object.keys(res.data).length} detected
+                                                                                </span>
+                                                                            </div>
+                                                                            <span className="text-xs text-muted-foreground ml-4">
+                                                                                {new Date(res.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                             </span>
-                                                                        </div>
-                                                                        <span className="text-xs text-muted-foreground ml-4">
-                                                                            {new Date(res.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                        </span>
-                                                                    </DropdownMenuItem>
-                                                                ))}
-                                                            </>
-                                                        )}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                                                        </DropdownMenuItem>
+                                                                    ))}
+                                                                </>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
 
-                                                <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cbc-camera-upload')?.click()} disabled={isScanning}>
-                                                    {isScanning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
-                                                    Scan CBC (Photo)
-                                                </Button>
+                                                    <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById('cbc-camera-upload')?.click()} disabled={isScanning}>
+                                                        {isScanning ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Camera className="h-4 w-4 mr-2" />}
+                                                        Scan CBC (Photo)
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2 text-sm">
+                                                {["wbc", "rbc", "hb", "pcv", "mcv", "mch", "mchc", "platelet", "neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils"].map(field => (
+                                                    <FormField
+                                                        key={field}
+                                                        control={form.control}
+                                                        name={`details.${field}` as any}
+                                                        render={({ field: detailField }) => (
+                                                            <FormItem className="space-y-1">
+                                                                <FormLabel className="text-xs uppercase">{field}</FormLabel>
+                                                                <FormControl>
+                                                                    <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
+                                                                </FormControl>
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                ))}
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-3 gap-2 text-sm">
-                                            {["wbc", "rbc", "hb", "pcv", "mcv", "mch", "mchc", "platelet", "neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils"].map(field => (
-                                                <FormField
-                                                    key={field}
-                                                    control={form.control}
-                                                    name={`details.${field}` as any}
-                                                    render={({ field: detailField }) => (
-                                                        <FormItem className="space-y-1">
-                                                            <FormLabel className="text-xs uppercase">{field}</FormLabel>
-                                                            <FormControl>
-                                                                <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
-                                                            </FormControl>
-                                                        </FormItem>
-                                                    )}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {(category === "Blood Chemistry" || category === "Hematology & Blood Chemistry") && (
-                                    <div className="border p-4 rounded-md space-y-4">
-                                        <h4 className="font-semibold text-sm uppercase">Blood Chemistry Details</h4>
-                                        <div className="grid grid-cols-3 gap-2 text-sm">
-                                            {["glucose", "urea", "creatinine", "alt", "ast", "alp", "totalProtein", "albumin", "globulin", "totalBilirubin", "sodium", "potassium", "chloride", "calcium", "phosphorus"].map(field => (
-                                                <FormField
-                                                    key={field}
-                                                    control={form.control}
-                                                    name={`details.${field}` as any}
-                                                    render={({ field: detailField }) => (
-                                                        <FormItem className="space-y-1">
-                                                            <FormLabel className="text-xs uppercase">{field}</FormLabel>
-                                                            <FormControl>
-                                                                <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
-                                                            </FormControl>
-                                                        </FormItem>
-                                                    )}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {category === "Biochemistry" && (
-                                    <div className="border p-4 rounded-md space-y-4">
-                                        <h4 className="font-semibold text-sm uppercase">Biochemistry Details</h4>
-                                        <div className="grid grid-cols-3 gap-2 text-sm">
-                                            {[
-                                                { key: "bio_glucose", label: "Glucose" },
-                                                { key: "bio_urea", label: "Urea (BUN)" },
-                                                { key: "bio_creatinine", label: "Creatinine" },
-                                                { key: "bio_alt", label: "ALT (SGPT)" },
-                                                { key: "bio_ast", label: "AST (SGOT)" },
-                                                { key: "bio_alp", label: "ALP" },
-                                                { key: "bio_totalProtein", label: "Total Protein" },
-                                                { key: "bio_albumin", label: "Albumin" },
-                                                { key: "bio_globulin", label: "Globulin" },
-                                                { key: "bio_totalBilirubin", label: "Total Bilirubin" },
-                                                { key: "bio_sodium", label: "Sodium" },
-                                                { key: "bio_potassium", label: "Potassium" },
-                                                { key: "bio_chloride", label: "Chloride" },
-                                                { key: "bio_calcium", label: "Calcium" },
-                                                { key: "bio_phosphorus", label: "Phosphorus" },
-                                            ].map(({ key, label }) => (
-                                                <FormField
-                                                    key={key}
-                                                    control={form.control}
-                                                    name={`details.${key}` as any}
-                                                    render={({ field: detailField }) => (
-                                                        <FormItem className="space-y-1">
-                                                            <FormLabel className="text-xs">{label}</FormLabel>
-                                                            <FormControl>
-                                                                <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
-                                                            </FormControl>
-                                                        </FormItem>
-                                                    )}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                <FormField
-                                    control={form.control}
-                                    name="result"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Summary / Conclusion</FormLabel>
-                                            <FormControl>
-                                                <Textarea placeholder="Overall result interpretation..." {...field} value={field.value || ""} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
                                     )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="notes"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Notes</FormLabel>
-                                            <FormControl>
-                                                <Textarea placeholder="Additional notes..." {...field} value={field.value || ""} />
-                                            </FormControl>
-                                        </FormItem>
+                                    {(category === "Blood Chemistry" || category === "Hematology & Blood Chemistry") && (
+                                        <div className="border p-4 rounded-md space-y-4">
+                                            <h4 className="font-semibold text-sm uppercase">Blood Chemistry Details</h4>
+                                            <div className="grid grid-cols-3 gap-2 text-sm">
+                                                {["glucose", "urea", "creatinine", "alt", "ast", "alp", "totalProtein", "albumin", "globulin", "totalBilirubin", "sodium", "potassium", "chloride", "calcium", "phosphorus"].map(field => (
+                                                    <FormField
+                                                        key={field}
+                                                        control={form.control}
+                                                        name={`details.${field}` as any}
+                                                        render={({ field: detailField }) => (
+                                                            <FormItem className="space-y-1">
+                                                                <FormLabel className="text-xs uppercase">{field}</FormLabel>
+                                                                <FormControl>
+                                                                    <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
+                                                                </FormControl>
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="fileUrl"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Attachment URL (Optional)</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="https://..." {...field} value={field.value || ""} />
-                                            </FormControl>
-                                        </FormItem>
+                                    {category === "Biochemistry" && (
+                                        <div className="border p-4 rounded-md space-y-4">
+                                            <h4 className="font-semibold text-sm uppercase">Biochemistry Details</h4>
+                                            <div className="grid grid-cols-3 gap-2 text-sm">
+                                                {[
+                                                    { key: "bio_glucose", label: "Glucose" },
+                                                    { key: "bio_urea", label: "Urea (BUN)" },
+                                                    { key: "bio_creatinine", label: "Creatinine" },
+                                                    { key: "bio_alt", label: "ALT (SGPT)" },
+                                                    { key: "bio_ast", label: "AST (SGOT)" },
+                                                    { key: "bio_alp", label: "ALP" },
+                                                    { key: "bio_totalProtein", label: "Total Protein" },
+                                                    { key: "bio_albumin", label: "Albumin" },
+                                                    { key: "bio_globulin", label: "Globulin" },
+                                                    { key: "bio_totalBilirubin", label: "Total Bilirubin" },
+                                                    { key: "bio_sodium", label: "Sodium" },
+                                                    { key: "bio_potassium", label: "Potassium" },
+                                                    { key: "bio_chloride", label: "Chloride" },
+                                                    { key: "bio_calcium", label: "Calcium" },
+                                                    { key: "bio_phosphorus", label: "Phosphorus" },
+                                                ].map(({ key, label }) => (
+                                                    <FormField
+                                                        key={key}
+                                                        control={form.control}
+                                                        name={`details.${key}` as any}
+                                                        render={({ field: detailField }) => (
+                                                            <FormItem className="space-y-1">
+                                                                <FormLabel className="text-xs">{label}</FormLabel>
+                                                                <FormControl>
+                                                                    <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
+                                                                </FormControl>
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
-                                />
-                                <div className="pt-2 flex justify-end gap-2">
-                                    <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                                    <Button type="submit" disabled={createMutation.isPending}>
-                                        {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Add Report
-                                    </Button>
-                                </div>
-                            </form>
-                        </Form>
-                    </DialogContent>
-                </Dialog>
+                                    <FormField
+                                        control={form.control}
+                                        name="result"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Summary / Conclusion</FormLabel>
+                                                <FormControl>
+                                                    <Textarea placeholder="Overall result interpretation..." {...field} value={field.value || ""} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="notes"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Notes</FormLabel>
+                                                <FormControl>
+                                                    <Textarea placeholder="Additional notes..." {...field} value={field.value || ""} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="fileUrl"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Attachment URL (Optional)</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="https://..." {...field} value={field.value || ""} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <div className="pt-2 flex justify-end gap-2">
+                                        <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                                        <Button type="submit" disabled={createMutation.isPending}>
+                                            {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            Add Report
+                                        </Button>
+                                    </div>
+                                </form>
+                            </Form>
+                        </DialogContent>
+                    </Dialog>
+                )}
             </div>
 
             {activeCategories.length === 0 ? (

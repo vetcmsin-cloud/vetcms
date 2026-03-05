@@ -29,12 +29,18 @@ const permissionGroups: Record<string, string[]> = {
   "Owners": ["owners.view", "owners.create", "owners.edit", "owners.delete"],
   "Appointments": ["appointments.view", "appointments.create", "appointments.edit", "appointments.delete"],
   "Medical Records": ["medical_records.view", "medical_records.create", "medical_records.delete"],
+  "Lab — Add Report": ["medical_records.create"],
+  "Activity Log": ["activity_log.view"],
   "Billing": ["billing.view", "billing.create", "billing.edit", "billing.delete"],
   "Fee Structure": ["fee_structure.view", "fee_structure.manage"],
+  "Inventory": ["inventory.view", "inventory.manage"],
+  "Reports": ["reports.view"],
+  "Accounts": ["accounts.view", "accounts.manage"],
   "User Management": ["user_management.view", "user_management.manage"],
   "Roles": ["roles.manage"],
   "Backup": ["backup.export"],
   "Admin Dashboard": ["admin_dashboard.view"],
+  "Data Management": ["data.erase"],
 };
 
 function PermissionCheckboxes({

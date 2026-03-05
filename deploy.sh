@@ -185,6 +185,11 @@ log_ok "Pushing database schema..."
 npx drizzle-kit push 2>&1
 log_ok "Database schema synced"
 
+# NOTE: Admin users (superadmin + admin) and all system data (roles, fee
+# structures, lab categories, species) are seeded AUTOMATICALLY on the
+# first app startup via the built-in seedDatabase() function.
+# No separate seed step needed here.
+
 # Clean up dev dependencies
 npm prune --omit=dev > /dev/null 2>&1
 
@@ -322,6 +327,19 @@ echo -e "  ${CYAN}App Directory:${NC}  $APP_DIR"
 echo -e "  ${CYAN}Database:${NC}       $DB_NAME (user: $DB_USER)"
 echo -e "  ${CYAN}DB Password:${NC}    $DB_PASS"
 echo ""
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW}   🔑  DEFAULT LOGIN CREDENTIALS  🔑${NC}"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${GREEN}Super Admin:${NC}"
+echo -e "    Email:    superadmin@petpointvet.in"
+echo -e "    Password: superadmin123"
+echo ""
+echo -e "  ${GREEN}Admin:${NC}"
+echo -e "    Email:    admin@petpointvet.in"
+echo -e "    Password: admin123"
+echo ""
+echo -e "  ${RED}⚠ CHANGE THESE PASSWORDS AFTER FIRST LOGIN!${NC}"
 echo -e "  ${YELLOW}⚠ SAVE THE DATABASE PASSWORD ABOVE! You will need it for maintenance.${NC}"
 echo ""
 echo -e "  ${CYAN}Useful Commands:${NC}"

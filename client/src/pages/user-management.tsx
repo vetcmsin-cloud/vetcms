@@ -87,7 +87,7 @@ function AddUserDialog() {
     email: "",
     phone: "",
     password: "",
-    role: "receptionist",
+    role: "admin",
   });
 
   const { data: roles } = useQuery<Role[]>({
@@ -95,20 +95,22 @@ function AddUserDialog() {
     enabled: open,
   });
 
-  // Filter out superadmin role unless current user is superadmin
+  // Filter out superadmin role for the role selector
   const availableRoles = roles?.filter(r =>
-    currentUser?.role === "superadmin" ? r.name !== "superadmin" : r.name !== "superadmin"
+    r.name !== "superadmin"
   ) || [];
+
+
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/users", { ...form, permissions: [] });
+      const res = await apiRequest("POST", "/api/users", { ...form });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       setOpen(false);
-      setForm({ name: "", email: "", phone: "", password: "", role: "receptionist" });
+      setForm({ name: "", email: "", phone: "", password: "", role: "admin" });
       toast({ title: "User created", description: "New staff member has been added." });
     },
     onError: (err: Error) => {
@@ -200,13 +202,14 @@ function AddUserDialog() {
                     </SelectItem>
                   ))
                 ) : (
-                  <>
-                    <SelectItem value="doctor">Doctor</SelectItem>
-                    <SelectItem value="receptionist">Receptionist</SelectItem>
-                  </>
+                  <SelectItem value="admin">Admin</SelectItem>
                 )}
               </SelectContent>
             </Select>
+          </div>
+          <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2">
+            <Shield className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>New user will be granted permissions <strong>based on their selected role</strong>. You can adjust specific permissions anytime via <em>User Rights</em>.</span>
           </div>
           <Button
             onClick={() => mutation.mutate()}
@@ -330,10 +333,7 @@ function EditUserDialog({ user }: { user: SafeUser }) {
                       </SelectItem>
                     ))
                   ) : (
-                    <>
-                      <SelectItem value="doctor">Doctor</SelectItem>
-                      <SelectItem value="receptionist">Receptionist</SelectItem>
-                    </>
+                    <SelectItem value="admin">Admin</SelectItem>
                   )}
                 </SelectContent>
               </Select>

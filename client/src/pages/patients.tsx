@@ -69,6 +69,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
     species: "Dog",
     breed: "",
     age: "",
+    ageMonths: "",
     weight: "",
     gender: "Male",
     color: "",
@@ -111,7 +112,8 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
         name: form.name,
         species: form.species,
         breed: form.breed,
-        age: parseInt(form.age),
+        age: parseInt(form.age) || 0,
+        ageMonths: parseInt(form.ageMonths) || 0,
         weight: form.weight || undefined,
         gender: form.gender,
         color: form.color || undefined,
@@ -148,7 +150,12 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
     },
   });
 
-  const canSubmit = form.name && form.age && (
+  // At least one of years or months must be filled in
+  const ageYears = parseInt(form.age) || 0;
+  const ageMonthsVal = parseInt(form.ageMonths) || 0;
+  const hasAge = ageYears > 0 || ageMonthsVal > 0;
+
+  const canSubmit = form.name && hasAge && (
     (useExistingOwner && selectedOwner) || (!useExistingOwner && form.ownerFirstName && form.ownerPhone)
   );
 
@@ -243,29 +250,46 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
               data-testid="input-pet-breed"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pet-age">Age (years) *</Label>
-              <Input
-                id="pet-age"
-                type="number"
-                placeholder="Age"
-                value={form.age}
-                onChange={(e) => setForm({ ...form, age: e.target.value })}
-                data-testid="input-pet-age"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pet-weight">Weight (kg)</Label>
-              <Input
-                id="pet-weight"
-                type="number"
-                step="0.1"
-                placeholder="Weight"
-                value={form.weight}
-                onChange={(e) => setForm({ ...form, weight: e.target.value })}
-                data-testid="input-pet-weight"
-              />
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Age <span className="text-destructive">*</span> <span className="font-normal opacity-70">(enter years, months, or both)</span></Label>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="pet-age" className="text-[11px] text-muted-foreground">Years</Label>
+                <Input
+                  id="pet-age"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={form.age}
+                  onChange={(e) => setForm({ ...form, age: e.target.value })}
+                  data-testid="input-pet-age"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="pet-age-months" className="text-[11px] text-muted-foreground">Months (0–11)</Label>
+                <Input
+                  id="pet-age-months"
+                  type="number"
+                  min="0"
+                  max="11"
+                  placeholder="0"
+                  value={form.ageMonths}
+                  onChange={(e) => setForm({ ...form, ageMonths: e.target.value })}
+                  data-testid="input-pet-age-months"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="pet-weight" className="text-[11px] text-muted-foreground">Weight (kg)</Label>
+                <Input
+                  id="pet-weight"
+                  type="number"
+                  step="0.1"
+                  placeholder="0.0"
+                  value={form.weight}
+                  onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                  data-testid="input-pet-weight"
+                />
+              </div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -454,6 +478,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
     species: pet.species,
     breed: pet.breed || "",
     age: String(pet.age),
+    ageMonths: pet.ageMonths ? String(pet.ageMonths) : "",
     weight: pet.weight || "",
     gender: pet.gender,
     color: pet.color || "",
@@ -461,6 +486,42 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
     ownerId: String(pet.ownerId),
     imageUrl: pet.imageUrl || "",
   });
+
+  // Owner editable fields
+  const [ownerPhone, setOwnerPhone] = useState("");
+  const [ownerAddress, setOwnerAddress] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+
+  // Helper: populate owner fields from owners list
+  const syncOwnerFields = (ownerId: string) => {
+    const o = owners.find(x => String(x.id) === ownerId);
+    setOwnerPhone(o?.phone || "");
+    setOwnerAddress(o?.address || "");
+    setOwnerEmail(o?.email || "");
+  };
+
+  // Sync form whenever the dialog opens or the pet changes
+  useEffect(() => {
+    if (open) {
+      const ownerIdStr = String(pet.ownerId);
+      setForm({
+        name: pet.name,
+        species: pet.species,
+        breed: pet.breed || "",
+        age: String(pet.age),
+        ageMonths: pet.ageMonths ? String(pet.ageMonths) : "",
+        weight: pet.weight || "",
+        gender: pet.gender,
+        color: pet.color || "",
+        microchip: pet.microchip || "",
+        ownerId: ownerIdStr,
+        imageUrl: pet.imageUrl || "",
+      });
+      syncOwnerFields(ownerIdStr);
+      setPhotoPreview(null);
+      setCapturedFile(null);
+    }
+  }, [open, pet, owners]);
 
   const handleCameraCapture = (file: File) => {
     setCapturedFile(file);
@@ -471,15 +532,31 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
 
   const mutation = useMutation({
     mutationFn: async () => {
+      // Update pet — send all fields explicitly as correct types
       const res = await apiRequest("PATCH", `/api/pets/${pet.id}`, {
-        ...form,
-        age: parseInt(form.age),
+        name: form.name,
+        species: form.species,
+        breed: form.breed || undefined,
+        age: parseInt(form.age) || 0,
+        ageMonths: parseInt(form.ageMonths) || 0,
         weight: form.weight || undefined,
+        gender: form.gender,
         color: form.color || undefined,
         microchip: form.microchip || undefined,
         ownerId: parseInt(form.ownerId),
+        imageUrl: form.imageUrl || undefined,
       });
       const updated = await res.json();
+
+      // Also update owner phone / address / email if owner is selected
+      if (form.ownerId) {
+        await apiRequest("PATCH", `/api/owners/${parseInt(form.ownerId)}`, {
+          phone: ownerPhone || undefined,
+          address: ownerAddress || undefined,
+          email: ownerEmail || undefined,
+        });
+      }
+
       if (capturedFile) {
         const formData = new FormData();
         formData.append("file", capturedFile);
@@ -494,10 +571,11 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
       onOpenChange(false);
       setPhotoPreview(null);
       setCapturedFile(null);
-      toast({ title: "Patient updated", description: "Patient information has been updated." });
+      toast({ title: "Patient updated", description: "Patient & owner info updated." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -586,27 +664,46 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
               data-testid="input-edit-pet-breed"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-pet-age">Age (years) *</Label>
-              <Input
-                id="edit-pet-age"
-                type="number"
-                value={form.age}
-                onChange={(e) => setForm({ ...form, age: e.target.value })}
-                data-testid="input-edit-pet-age"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-pet-weight">Weight (kg)</Label>
-              <Input
-                id="edit-pet-weight"
-                type="number"
-                step="0.1"
-                value={form.weight}
-                onChange={(e) => setForm({ ...form, weight: e.target.value })}
-                data-testid="input-edit-pet-weight"
-              />
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Age <span className="text-destructive">*</span> <span className="font-normal opacity-70">(enter years, months, or both)</span></Label>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="edit-pet-age" className="text-[11px] text-muted-foreground">Years</Label>
+                <Input
+                  id="edit-pet-age"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={form.age}
+                  onChange={(e) => setForm({ ...form, age: e.target.value })}
+                  data-testid="input-edit-pet-age"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="edit-pet-age-months" className="text-[11px] text-muted-foreground">Months (0–11)</Label>
+                <Input
+                  id="edit-pet-age-months"
+                  type="number"
+                  min="0"
+                  max="11"
+                  placeholder="0"
+                  value={form.ageMonths}
+                  onChange={(e) => setForm({ ...form, ageMonths: e.target.value })}
+                  data-testid="input-edit-pet-age-months"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="edit-pet-weight" className="text-[11px] text-muted-foreground">Weight (kg)</Label>
+                <Input
+                  id="edit-pet-weight"
+                  type="number"
+                  step="0.1"
+                  placeholder="0.0"
+                  value={form.weight}
+                  onChange={(e) => setForm({ ...form, weight: e.target.value })}
+                  data-testid="input-edit-pet-weight"
+                />
+              </div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -629,24 +726,67 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
               />
             </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Owner</Label>
-            <Select value={form.ownerId} onValueChange={(v) => setForm({ ...form, ownerId: v })}>
-              <SelectTrigger data-testid="select-edit-owner">
-                <SelectValue placeholder="Select owner" />
-              </SelectTrigger>
-              <SelectContent>
-                {owners.map((o) => (
-                  <SelectItem key={o.id} value={String(o.id)}>
-                    {o.firstName} {o.lastName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Owner section */}
+          <div className="border-t pt-3 mt-1">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Owner Details</p>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Owner</Label>
+                <Select
+                  value={form.ownerId}
+                  onValueChange={(v) => {
+                    setForm({ ...form, ownerId: v });
+                    syncOwnerFields(v);
+                  }}
+                >
+                  <SelectTrigger data-testid="select-edit-owner">
+                    <SelectValue placeholder="Select owner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {owners.map((o) => (
+                      <SelectItem key={o.id} value={String(o.id)}>
+                        {o.firstName} {o.lastName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-owner-phone">Phone</Label>
+                <Input
+                  id="edit-owner-phone"
+                  placeholder="Owner phone number"
+                  value={ownerPhone}
+                  onChange={(e) => setOwnerPhone(e.target.value)}
+                  data-testid="input-edit-owner-phone"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-owner-address">Address</Label>
+                <Input
+                  id="edit-owner-address"
+                  placeholder="Owner address"
+                  value={ownerAddress}
+                  onChange={(e) => setOwnerAddress(e.target.value)}
+                  data-testid="input-edit-owner-address"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-owner-email">Email</Label>
+                <Input
+                  id="edit-owner-email"
+                  type="email"
+                  placeholder="Owner email"
+                  value={ownerEmail}
+                  onChange={(e) => setOwnerEmail(e.target.value)}
+                  data-testid="input-edit-owner-email"
+                />
+              </div>
+            </div>
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.name || !form.age || !form.ownerId}
+            disabled={mutation.isPending || !form.name || !form.ownerId || (!(parseInt(form.age) > 0) && !(parseInt(form.ageMonths) > 0))}
             data-testid="button-submit-edit-pet"
           >
             {mutation.isPending ? "Saving..." : "Update Patient"}
@@ -903,7 +1043,7 @@ export default function Patients() {
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Calendar className="w-3 h-3" />
-                          {pet.age}y
+                          {[pet.age > 0 ? `${pet.age}y` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths}m` : ""].filter(Boolean).join(" ") || "< 1m"}
                         </div>
                         {pet.weight && (
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">

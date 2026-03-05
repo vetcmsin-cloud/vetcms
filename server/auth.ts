@@ -77,9 +77,9 @@ export function requirePermission(...permissions: string[]) {
       if (!user) return res.status(401).json({ message: "User not found" });
 
       let effectivePerms: string[] = [];
-      // Only use user-level permissions if explicitly set (non-empty)
-      // An empty array [] means "no override" — fall back to role permissions
-      if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
+      // Only use user-level permissions if explicitly set (even if empty)
+      // A null/undefined value means "no override" — fall back to role permissions
+      if (user.permissions !== null && user.permissions !== undefined && Array.isArray(user.permissions)) {
         effectivePerms = user.permissions;
       } else {
         // Fall back to the role's permissions

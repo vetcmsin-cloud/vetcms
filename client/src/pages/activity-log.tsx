@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { type ActivityLog, type User } from "@shared/schema";
 import {
@@ -21,7 +21,17 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Activity, ChevronLeft, ChevronRight, Filter, X, Monitor, Smartphone } from "lucide-react";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Loader2, Activity, ChevronLeft, ChevronRight, Filter, X, Monitor, Smartphone, Trash2, AlertTriangle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // Simple User-Agent parser
 function parseUserAgent(ua: string | null | undefined): { browser: string; os: string; isMobile: boolean } | null {
@@ -105,12 +115,22 @@ const ACTION_COLORS: Record<string, string> = {
 const PAGE_SIZE = 25;
 
 export default function ActivityLogPage() {
-    const { hasPermission } = useAuth();
+    const { hasPermission, user } = useAuth();
+    const { toast } = useToast();
+    const queryClient = useQueryClient();
+
     const [page, setPage] = useState(0);
     const [userFilter, setUserFilter] = useState<string>("");
     const [entityFilter, setEntityFilter] = useState<string>("");
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
+
+    // Clear logs dialog state
+    const [clearDialogOpen, setClearDialogOpen] = useState(false);
+    const [clearMode, setClearMode] = useState<"all" | "before">("all");
+    const [clearBeforeDate, setClearBeforeDate] = useState<string>("");
+
+    const isSuperAdmin = (user as any)?.role?.toLowerCase() === "superadmin";
 
     const buildQuery = () => {
         const params = new URLSearchParams();
@@ -141,6 +161,44 @@ export default function ActivityLogPage() {
         queryKey: ["/api/users"],
     });
 
+    // Clear logs mutation
+    const clearLogsMutation = useMutation({
+        mutationFn: async () => {
+            const params = new URLSearchParams();
+            if (clearMode === "before" && clearBeforeDate) {
+                params.set("beforeDate", clearBeforeDate);
+            }
+            const url = `/api/activity-logs${params.toString() ? "?" + params.toString() : ""}`;
+            const res = await fetch(url, {
+                method: "DELETE",
+                credentials: "include",
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.message || "Failed to clear logs");
+            }
+            return res.json();
+        },
+        onSuccess: (result) => {
+            toast({
+                title: "Logs Cleared",
+                description: result.message,
+            });
+            queryClient.invalidateQueries({ queryKey: ["/api/activity-logs"] });
+            setClearDialogOpen(false);
+            setClearBeforeDate("");
+            setClearMode("all");
+            setPage(0);
+        },
+        onError: (error: Error) => {
+            toast({
+                title: "Error",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
     if (!hasPermission("activity_log.view", "admin_dashboard.view")) {
         return (
             <div className="flex items-center justify-center min-h-screen text-muted-foreground">
@@ -161,6 +219,8 @@ export default function ActivityLogPage() {
 
     const hasFilters = userFilter || entityFilter || startDate || endDate;
 
+    const canClear = clearMode === "all" || (clearMode === "before" && clearBeforeDate);
+
     return (
         <div className="p-8 space-y-6">
             <div className="flex items-center justify-between">
@@ -173,11 +233,24 @@ export default function ActivityLogPage() {
                         Track every action performed across the system.
                     </p>
                 </div>
-                {data && (
-                    <Badge variant="outline" className="text-sm px-3 py-1">
-                        {data.total.toLocaleString()} total entries
-                    </Badge>
-                )}
+                <div className="flex items-center gap-3">
+                    {data && (
+                        <Badge variant="outline" className="text-sm px-3 py-1">
+                            {data.total.toLocaleString()} total entries
+                        </Badge>
+                    )}
+                    {isSuperAdmin && (
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            className="flex items-center gap-2"
+                            onClick={() => setClearDialogOpen(true)}
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Clear Logs
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* Filters */}
@@ -249,7 +322,7 @@ export default function ActivityLogPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[180px]">Date & Time</TableHead>
+                                    <TableHead className="w-[180px]">Date &amp; Time</TableHead>
                                     <TableHead>User</TableHead>
                                     <TableHead className="w-[120px]">Action</TableHead>
                                     <TableHead>Entity</TableHead>
@@ -359,6 +432,113 @@ export default function ActivityLogPage() {
                     </>
                 )}
             </div>
+
+            {/* Clear Logs Dialog */}
+            <Dialog open={clearDialogOpen} onOpenChange={(open) => {
+                setClearDialogOpen(open);
+                if (!open) { setClearBeforeDate(""); setClearMode("all"); }
+            }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-destructive">
+                            <AlertTriangle className="w-5 h-5" />
+                            Clear Activity Logs
+                        </DialogTitle>
+                        <DialogDescription>
+                            This action is irreversible. Choose what to clear below.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-2">
+                        {/* Mode selection */}
+                        <div className="space-y-2">
+                            <Label className="text-sm font-medium">Clear Mode</Label>
+                            <div className="flex flex-col gap-2">
+                                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-colors hover:bg-muted/50"
+                                    style={{ borderColor: clearMode === "all" ? "hsl(var(--destructive))" : undefined }}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="clearMode"
+                                        value="all"
+                                        checked={clearMode === "all"}
+                                        onChange={() => setClearMode("all")}
+                                        className="accent-destructive"
+                                    />
+                                    <div>
+                                        <div className="text-sm font-medium">Clear All Logs</div>
+                                        <div className="text-xs text-muted-foreground">Remove every activity log entry from the database</div>
+                                    </div>
+                                </label>
+                                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-colors hover:bg-muted/50"
+                                    style={{ borderColor: clearMode === "before" ? "hsl(var(--destructive))" : undefined }}
+                                >
+                                    <input
+                                        type="radio"
+                                        name="clearMode"
+                                        value="before"
+                                        checked={clearMode === "before"}
+                                        onChange={() => setClearMode("before")}
+                                        className="accent-destructive"
+                                    />
+                                    <div>
+                                        <div className="text-sm font-medium">Clear Before a Date</div>
+                                        <div className="text-xs text-muted-foreground">Remove all logs older than the selected date</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Date picker (only for "before" mode) */}
+                        {clearMode === "before" && (
+                            <div className="space-y-1">
+                                <Label htmlFor="clear-before-date" className="text-sm font-medium">
+                                    Clear logs before this date
+                                </Label>
+                                <Input
+                                    id="clear-before-date"
+                                    type="date"
+                                    value={clearBeforeDate}
+                                    onChange={(e) => setClearBeforeDate(e.target.value)}
+                                    max={new Date().toISOString().split("T")[0]}
+                                />
+                                {clearBeforeDate && (
+                                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                        ⚠ All logs on or before <strong>{new Date(clearBeforeDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong> will be permanently deleted.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {clearMode === "all" && (
+                            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                                ⚠ This will permanently delete <strong>all {data?.total?.toLocaleString() || "0"} log entries</strong>. This cannot be undone.
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter className="gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => setClearDialogOpen(false)}
+                            disabled={clearLogsMutation.isPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => clearLogsMutation.mutate()}
+                            disabled={!canClear || clearLogsMutation.isPending}
+                        >
+                            {clearLogsMutation.isPending ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Clearing…</>
+                            ) : (
+                                <><Trash2 className="w-4 h-4 mr-2" />Confirm Clear</>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

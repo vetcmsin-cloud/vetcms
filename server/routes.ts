@@ -9,6 +9,7 @@ import {
   insertLabReportSchema,
   insertLabCategorySchema, insertLabTestSchema, insertLabRefRangeSchema, insertSpeciesSchema,
   insertSupplierSchema, insertPurchaseOrderSchema, insertPurchaseOrderItemSchema,
+  insertEstimateSchema,
 } from "@shared/schema";
 import { hashPassword, comparePassword, requireAuth, requireAdmin, requireRole, requirePermission } from "./auth";
 import multer from "multer";
@@ -136,7 +137,7 @@ export async function registerRoutes(
     (req.session as any).userRole = user.role;
 
     const role = await storage.getRoleByName(user.role);
-    const effectivePermissions = (user.permissions && user.permissions.length > 0)
+    const effectivePermissions = (user.permissions !== null && user.permissions !== undefined && Array.isArray(user.permissions))
       ? user.permissions
       : (role?.permissions || []);
 
@@ -165,7 +166,7 @@ export async function registerRoutes(
     if (!user) return res.status(401).json({ message: "User not found" });
 
     const role = await storage.getRoleByName(user.role);
-    const effectivePermissions = (user.permissions && user.permissions.length > 0)
+    const effectivePermissions = (user.permissions !== null && user.permissions !== undefined && Array.isArray(user.permissions))
       ? user.permissions
       : (role?.permissions || []);
 
@@ -370,16 +371,31 @@ export async function registerRoutes(
   app.post("/api/invoices", requireAuth, requirePermission("billing.manage", "billing.create"), async (req, res) => {
     const { items, ...invoiceData } = req.body as any;
     const userId = (req.session as any).userId;
-    const invoiceNumber = await storage.getNextInvoiceNumber();
-    const dataWithMeta = { ...invoiceData, invoiceNumber, createdBy: userId, status: invoiceData.status || "pending" };
+    // Use a temp unique placeholder — storage.createInvoice will immediately
+    // update this to the real #PET-XXXX number based on the actual row id.
+    const tempNumber = `#TEMP-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const dataWithMeta = { ...invoiceData, invoiceNumber: tempNumber, createdBy: userId, status: invoiceData.status || "pending" };
     // If saving direct as paid
     if (dataWithMeta.status === "paid" && !dataWithMeta.billedBy) {
       dataWithMeta.billedBy = userId;
     }
-    const parsed = insertInvoiceSchema.safeParse(dataWithMeta);
-    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
-    const invoice = await storage.createInvoice(parsed.data);
+    // For OP invoices, ownerId may be 0 (no linked owner). We relax the FK
+    // by validating without ownerId and then adding it back so Postgres accepts it.
+    let invoiceToCreate: any;
+    if (invoiceData.invoiceType === "op") {
+      // Validate everything except ownerId, then inject it back
+      const { ownerId: _skip, ...opData } = dataWithMeta;
+      const parsed = insertInvoiceSchema.partial().safeParse(opData);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      invoiceToCreate = { ...parsed.data, ownerId: 0 };
+    } else {
+      const parsed = insertInvoiceSchema.safeParse(dataWithMeta);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      invoiceToCreate = parsed.data;
+    }
+
+    const invoice = await storage.createInvoice(invoiceToCreate);
 
     if (items && Array.isArray(items)) {
       for (const item of items) {
@@ -400,6 +416,7 @@ export async function registerRoutes(
   app.post("/api/invoices/:id/mark-paid", requireAuth, requirePermission("billing.view"), async (req, res) => {
     const invoiceId = parseInt(String(req.params.id));
     const userId = (req.session as any).userId;
+    const { paymentMethod } = req.body as { paymentMethod?: string };
     const existing = await storage.getInvoice(invoiceId);
     if (!existing) return res.status(404).json({ message: "Invoice not found" });
 
@@ -407,14 +424,34 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Only pending or forwarded invoices can be marked as paid" });
     }
 
-    const updated = await storage.updateInvoice(invoiceId, { status: "paid", billedBy: userId });
+    const updated = await storage.updateInvoice(invoiceId, {
+      status: "paid",
+      billedBy: userId,
+      paymentMethod: paymentMethod || "cash",
+    });
     if (!updated) return res.status(404).json({ message: "Invoice not found" });
-    logActivity(req, "MARK_PAID", "Invoice", invoiceId, `Marked invoice #${existing.invoiceNumber} as paid`);
+    logActivity(req, "MARK_PAID", "Invoice", invoiceId, `Marked invoice #${existing.invoiceNumber} as paid via ${paymentMethod || "cash"}`);
 
     const items = await storage.getInvoiceItems(updated.id);
     const creator = updated.createdBy ? await storage.getUser(updated.createdBy) : null;
     const biller = updated.billedBy ? await storage.getUser(updated.billedBy) : null;
     res.json({ ...updated, items, createdByName: creator?.name || "System", createdByPhone: creator?.phone || "", billedByName: biller?.name || "" });
+  });
+
+  // Convert estimate to invoice
+  app.post("/api/invoices/:id/convert-to-invoice", requireAuth, requirePermission("billing.manage", "billing.create", "billing.edit"), async (req, res) => {
+    const invoiceId = parseInt(String(req.params.id));
+    const existing = await storage.getInvoice(invoiceId);
+    if (!existing) return res.status(404).json({ message: "Estimate not found" });
+    if (existing.status !== "estimate") {
+      return res.status(400).json({ message: "Only estimates can be converted to invoices" });
+    }
+    const updated = await storage.updateInvoice(invoiceId, { status: "pending" });
+    if (!updated) return res.status(404).json({ message: "Estimate not found" });
+    const items = await storage.getInvoiceItems(updated.id);
+    const creator = updated.createdBy ? await storage.getUser(updated.createdBy) : null;
+    logActivity(req, "CONVERT_ESTIMATE", "Invoice", invoiceId, `Converted estimate #${existing.invoiceNumber} to invoice`);
+    res.json({ ...updated, items, createdByName: creator?.name || "System", createdByPhone: creator?.phone || "" });
   });
 
   app.patch("/api/invoices/:id", requireAuth, requirePermission("billing.manage", "billing.edit"), async (req, res) => {
@@ -455,6 +492,160 @@ export async function registerRoutes(
     logActivity(req, "DELETE", "Invoice", parseInt(String(req.params.id)), "Deleted invoice");
     await storage.deleteInvoice(parseInt(String(req.params.id)));
     res.status(204).send();
+  });
+
+  // Estimates (separate module – no owner FK)
+  app.get("/api/estimates", requireAuth, requirePermission("billing.view", "billing.create", "billing.edit", "billing.delete"), async (_req, res) => {
+    try {
+      const all = await storage.getEstimates();
+      const users = await storage.getUsers();
+      const enriched = all.map(est => {
+        const creator = est.createdBy ? users.find(u => u.id === est.createdBy) : null;
+        return { ...est, createdByName: creator?.name || "System" };
+      });
+      res.json(enriched);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch estimates" });
+    }
+  });
+
+  app.get("/api/estimates/:id", requireAuth, requirePermission("billing.view", "billing.create", "billing.edit", "billing.delete"), async (req, res) => {
+    try {
+      const est = await storage.getEstimate(parseInt(String(req.params.id)));
+      if (!est) return res.status(404).json({ message: "Estimate not found" });
+      const items = await storage.getEstimateItems(est.id);
+      const creator = est.createdBy ? await storage.getUser(est.createdBy) : null;
+      res.json({ ...est, items, createdByName: creator?.name || "System" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch estimate" });
+    }
+  });
+
+  app.post("/api/estimates", requireAuth, requirePermission("billing.view", "billing.create", "billing.edit"), async (req, res) => {
+    try {
+      const { items, ...estData } = req.body as any;
+      const userId = (req.session as any).userId;
+      const estimateNumber = await storage.getNextEstimateNumber();
+      const data = { ...estData, estimateNumber, createdBy: userId };
+      const parsed = insertEstimateSchema.safeParse(data);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      const est = await storage.createEstimate(parsed.data);
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          await storage.createEstimateItem({ ...item, estimateId: est.id });
+        }
+      }
+      const createdItems = await storage.getEstimateItems(est.id);
+      const creator = est.createdBy ? await storage.getUser(est.createdBy) : null;
+      logActivity(req, "CREATE", "Estimate", est.id, `Created estimate #${est.estimateNumber}`);
+      res.status(201).json({ ...est, items: createdItems, createdByName: creator?.name || "System" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to create estimate" });
+    }
+  });
+
+  app.patch("/api/estimates/:id", requireAuth, requirePermission("billing.view", "billing.create", "billing.edit"), async (req, res) => {
+    try {
+      const { items, ...estData } = req.body as any;
+      const existing = await storage.getEstimate(parseInt(String(req.params.id)));
+      if (!existing) return res.status(404).json({ message: "Estimate not found" });
+      if (existing.status === "converted") return res.status(400).json({ message: "Converted estimates cannot be edited" });
+      const parsed = insertEstimateSchema.partial().safeParse(estData);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+      const updated = await storage.updateEstimate(parseInt(String(req.params.id)), parsed.data);
+      if (!updated) return res.status(404).json({ message: "Estimate not found" });
+      if (items && Array.isArray(items)) {
+        await storage.deleteEstimateItemsByEstimate(updated.id);
+        for (const item of items) {
+          await storage.createEstimateItem({ ...item, estimateId: updated.id });
+        }
+      }
+      const updatedItems = await storage.getEstimateItems(updated.id);
+      const creator = updated.createdBy ? await storage.getUser(updated.createdBy) : null;
+      logActivity(req, "UPDATE", "Estimate", updated.id, `Updated estimate #${updated.estimateNumber}`);
+      res.json({ ...updated, items: updatedItems, createdByName: creator?.name || "System" });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to update estimate" });
+    }
+  });
+
+  app.delete("/api/estimates/:id", requireAuth, requirePermission("billing.view", "billing.delete", "billing.edit"), async (req, res) => {
+    try {
+      logActivity(req, "DELETE", "Estimate", parseInt(String(req.params.id)), "Deleted estimate");
+      await storage.deleteEstimate(parseInt(String(req.params.id)));
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to delete estimate" });
+    }
+  });
+
+  // Convert estimate to invoice (requires owner details in body)
+  app.post("/api/estimates/:id/convert", requireAuth, requirePermission("billing.view", "billing.create", "billing.edit"), async (req, res) => {
+    try {
+      const estimateId = parseInt(String(req.params.id));
+      const userId = (req.session as any).userId;
+
+      const est = await storage.getEstimate(estimateId);
+      if (!est) return res.status(404).json({ message: "Estimate not found" });
+      if (est.status === "converted") return res.status(400).json({ message: "Already converted" });
+
+      const { ownerId: ownerIdRaw, ownerFirstName, ownerLastName, ownerPhone, ownerEmail, ownerAddress, petId: petIdRaw, date } = req.body as any;
+
+      let ownerId: number;
+      if (ownerIdRaw) {
+        ownerId = parseInt(String(ownerIdRaw));
+        const owner = await storage.getOwner(ownerId);
+        if (!owner) return res.status(404).json({ message: "Owner not found" });
+      } else {
+        if (!ownerFirstName || !ownerPhone) {
+          return res.status(400).json({ message: "Owner first name and phone are required" });
+        }
+        const newOwner = await storage.createOwner({
+          firstName: ownerFirstName,
+          lastName: ownerLastName || "",
+          phone: ownerPhone,
+          email: ownerEmail || undefined,
+          address: ownerAddress || undefined,
+        });
+        ownerId = newOwner.id;
+      }
+
+      const tempNumber = `#TEMP-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const estItems = await storage.getEstimateItems(estimateId);
+      const invoice = await storage.createInvoice({
+        invoiceNumber: tempNumber,
+        ownerId,
+        petId: petIdRaw ? parseInt(String(petIdRaw)) : null,
+        date: date || est.date,
+        status: "pending",
+        subtotal: est.subtotal,
+        tax: est.tax,
+        discount: est.discount,
+        total: est.total,
+        notes: est.notes || undefined,
+        createdBy: userId,
+      });
+
+      for (const item of estItems) {
+        await storage.createInvoiceItem({
+          invoiceId: invoice.id,
+          feeId: item.feeId || undefined,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+        });
+      }
+
+      await storage.updateEstimate(estimateId, { status: "converted", convertedInvoiceId: invoice.id });
+      logActivity(req, "CONVERT", "Estimate", estimateId, `Converted estimate #${est.estimateNumber} to invoice #${invoice.invoiceNumber}`);
+
+      const creator = invoice.createdBy ? await storage.getUser(invoice.createdBy) : null;
+      const invoiceItemsResult = await storage.getInvoiceItems(invoice.id);
+      res.status(201).json({ invoice: { ...invoice, items: invoiceItemsResult, createdByName: creator?.name || "System" }, estimateId });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to convert estimate" });
+    }
   });
 
   // Clinic Settings
@@ -1353,7 +1544,14 @@ export async function registerRoutes(
   app.post("/api/pets", async (req, res) => {
     const parsed = insertPetSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const pet = await storage.createPet(parsed.data);
+
+    // Preserve ageMonths explicitly
+    const petData: any = { ...parsed.data };
+    if (req.body.ageMonths !== undefined) {
+      petData.ageMonths = parseInt(String(req.body.ageMonths)) || 0;
+    }
+
+    const pet = await storage.createPet(petData);
     logActivity(req, "CREATE", "Pet", pet.id, `Created pet "${pet.name}"`);
     res.status(201).json(pet);
   });
@@ -1361,7 +1559,14 @@ export async function registerRoutes(
   app.patch("/api/pets/:id", async (req, res) => {
     const parsed = insertPetSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    const updated = await storage.updatePet(parseInt(String(req.params.id)), parsed.data);
+
+    // Explicitly include ageMonths if provided in body (Zod may strip default-valued fields)
+    const updateData: any = { ...parsed.data };
+    if (req.body.ageMonths !== undefined) {
+      updateData.ageMonths = parseInt(String(req.body.ageMonths)) || 0;
+    }
+
+    const updated = await storage.updatePet(parseInt(String(req.params.id)), updateData);
     if (!updated) return res.status(404).json({ message: "Pet not found" });
     logActivity(req, "UPDATE", "Pet", updated.id, `Updated pet "${updated.name}"`);
     res.json(updated);
@@ -1442,12 +1647,6 @@ export async function registerRoutes(
       return res.status(403).json({ message: "You can only edit your own records" });
     }
 
-    // Only within 24 hours of creation
-    const hoursSinceCreation = (Date.now() - new Date(existing.createdAt).getTime()) / (1000 * 60 * 60);
-    if (hoursSinceCreation > 24) {
-      return res.status(410).json({ message: "Edit window has expired (24 hours)" });
-    }
-
     const parsed = insertMedicalRecordSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
 
@@ -1478,6 +1677,22 @@ export async function registerRoutes(
       storage.getActivityLogCount(Object.keys(filters).length > 0 ? filters : undefined),
     ]);
     res.json({ logs, total, limit, offset });
+  });
+
+  // Clear activity logs – superadmin only
+  app.delete("/api/activity-logs", requireAuth, async (req, res) => {
+    const currentUserId = (req.session as any)?.userId;
+    const currentUser = currentUserId ? await storage.getUser(currentUserId) : null;
+    if (!currentUser || currentUser.role.toLowerCase() !== "superadmin") {
+      return res.status(403).json({ message: "Only Super Admin can clear activity logs" });
+    }
+    const beforeDate = req.query.beforeDate ? String(req.query.beforeDate) : undefined;
+    const count = await storage.deleteActivityLogs(beforeDate);
+    const detail = beforeDate
+      ? `Cleared ${count} activity log entries before ${beforeDate}`
+      : `Cleared all ${count} activity log entries`;
+    await logActivity(req, "ERASE", "Activity Log", undefined, detail);
+    res.json({ message: detail, count });
   });
 
   // --- Species Routes ---

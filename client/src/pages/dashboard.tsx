@@ -238,8 +238,8 @@ export default function Dashboard() {
                     {/* Date separator header */}
                     <div className="flex items-center gap-2">
                       <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${dateStr === today
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
                         }`}>
                         <CalendarDays className="w-3 h-3" />
                         {formatDateLabel(dateStr)}
@@ -348,7 +348,7 @@ export default function Dashboard() {
                           </Badge>
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {pet.breed} &middot; {pet.age}y &middot; {owner?.firstName} {owner?.lastName}
+                          {pet.breed} &middot; {[pet.age > 0 ? `${pet.age}y` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths}m` : ""].filter(Boolean).join(" ") || "< 1m"} &middot; {owner?.firstName} {owner?.lastName}
                         </span>
                       </div>
                       <div className="text-right flex-shrink-0">

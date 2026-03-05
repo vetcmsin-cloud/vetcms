@@ -169,32 +169,52 @@ export function InvoiceTable({ invoice, settings, startIndex = 0 }: SectionProps
     const colTotal = settings.invoiceColTotal || "Subtotal";
 
     return (
-        <div className="px-8 mb-4 mt-4">
-            <div className="overflow-hidden">
-                <table className="w-full text-sm">
+        <div style={{ padding: "0 32px", marginBottom: "16px", marginTop: "16px" }}>
+            <div style={{ overflow: "hidden" }}>
+                <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <colgroup>
+                        <col style={{ width: "36px" }} />   {/* No. */}
+                        <col style={{ width: "auto" }} />   {/* Description — takes remaining space */}
+                        <col style={{ width: "90px" }} />   {/* Price */}
+                        <col style={{ width: "50px" }} />   {/* Qty */}
+                        <col style={{ width: "90px" }} />   {/* Subtotal */}
+                    </colgroup>
                     <thead>
                         <tr style={{ borderTop: `2px solid ${accentColor}`, borderBottom: `2px solid ${accentColor}` }}>
-                            <th className="text-left py-3 px-2 text-xs font-bold uppercase tracking-wider text-muted-foreground w-16">No.</th>
-                            <th className="text-left py-3 px-2 text-xs font-bold uppercase tracking-wider" style={{ color: accentColor }}>{colDescription}</th>
-                            <th className="text-right py-3 px-2 text-xs font-bold uppercase tracking-wider w-24" style={{ color: accentColor }}>{colPrice}</th>
-                            <th className="text-center py-3 px-2 text-xs font-bold uppercase tracking-wider w-24" style={{ color: accentColor }}>{colQuantity}</th>
-                            <th className="text-right py-3 px-2 text-xs font-bold uppercase tracking-wider w-28" style={{ color: accentColor }}>{colTotal}</th>
+                            <th style={{ textAlign: "left", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>No.</th>
+                            <th style={{ textAlign: "left", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colDescription}</th>
+                            <th style={{ textAlign: "right", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colPrice}</th>
+                            <th style={{ textAlign: "center", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colQuantity}</th>
+                            <th style={{ textAlign: "right", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colTotal}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {invoice.items.length > 0 ? (
-                            invoice.items.map((item: any, idx: number) => (
-                                <tr key={item.id} className="border-b border-dashed last:border-0 hover:bg-gray-50/50">
-                                    <td className="py-4 px-2 text-xs font-medium text-muted-foreground">{(startIndex + idx + 1).toString().padStart(2, '0')}.</td>
-                                    <td className="py-4 px-2 font-medium">{item.description}</td>
-
-                                    <td className="py-4 px-2 text-right text-muted-foreground">{formatCurrency(item.unitPrice)}</td>
-                                    <td className="py-4 px-2 text-center text-muted-foreground">{item.quantity}</td>
-                                    <td className="py-4 px-2 text-right font-semibold text-foreground">{formatCurrency(item.total)}</td>
-                                </tr>
-                            ))
+                            invoice.items.map((item: any, idx: number) => {
+                                const isEven = idx % 2 === 1;
+                                const rowBg = isEven ? "#f9fafb" : "#ffffff";
+                                return (
+                                    <tr key={item.id} style={{ borderBottom: "1px solid #d1d5db", backgroundColor: rowBg }}>
+                                        <td style={{ padding: "10px 6px", fontSize: "11px", fontWeight: 500, color: "#9ca3af", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                            {(startIndex + idx + 1).toString().padStart(2, '0')}.
+                                        </td>
+                                        <td style={{ padding: "10px 6px", fontWeight: 500, verticalAlign: "top", wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "normal", backgroundColor: rowBg }}>
+                                            {item.description}
+                                        </td>
+                                        <td style={{ padding: "10px 6px", textAlign: "right", color: "#6b7280", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                            {formatCurrency(item.unitPrice)}
+                                        </td>
+                                        <td style={{ padding: "10px 6px", textAlign: "center", color: "#6b7280", verticalAlign: "top", backgroundColor: rowBg }}>
+                                            {item.quantity}
+                                        </td>
+                                        <td style={{ padding: "10px 6px", textAlign: "right", fontWeight: 600, verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                            {formatCurrency(item.total)}
+                                        </td>
+                                    </tr>
+                                );
+                            })
                         ) : (
-                            <tr><td colSpan={5} className="text-center p-8 text-muted-foreground">No items added</td></tr>
+                            <tr><td colSpan={5} style={{ textAlign: "center", padding: "32px", color: "#9ca3af" }}>No items added</td></tr>
                         )}
                     </tbody>
                 </table>

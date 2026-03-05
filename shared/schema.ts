@@ -16,7 +16,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   phone: text("phone").notNull().default(""), // Added phone field
   password: text("password").notNull(),
-  role: text("role").notNull().default("receptionist"),
+  role: text("role").notNull().default("admin"),
   permissions: jsonb("permissions").$type<string[]>(),
 });
 
@@ -35,6 +35,7 @@ export const pets = pgTable("pets", {
   species: text("species").notNull(),
   breed: text("breed"),
   age: integer("age").notNull(),
+  ageMonths: integer("age_months").default(0),
   weight: decimal("weight", { precision: 5, scale: 2 }),
   gender: text("gender").notNull().default("Male"),
   color: text("color"),
@@ -105,6 +106,10 @@ export const invoices = pgTable("invoices", {
   clinicAddress: text("clinic_address"),
   clinicPhone: text("clinic_phone"),
   forwardedTo: text("forwarded_to"),
+  paymentMethod: text("payment_method"),  // cash | upi | card | cheque | other
+  invoiceType: text("invoice_type").default("ip"),  // ip | op
+  opOwnerName: text("op_owner_name"),     // free-text for OP patients
+  opPetName: text("op_pet_name"),         // free-text for OP patients
 });
 
 export const invoiceItems = pgTable("invoice_items", {
@@ -117,18 +122,51 @@ export const invoiceItems = pgTable("invoice_items", {
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
 });
 
+// ---------- Estimates (standalone, no owner FK) ----------
+export const estimates = pgTable("estimates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  estimateNumber: text("estimate_number").notNull().unique(),
+  clientName: text("client_name").notNull(),      // free-text, no owner FK
+  petName: text("pet_name"),
+  date: text("date").notNull(),
+  status: text("status").notNull().default("draft"),  // draft | finalized | converted
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull().default("0"),
+  tax: decimal("tax", { precision: 10, scale: 2 }).notNull().default("0"),
+  discount: decimal("discount", { precision: 10, scale: 2 }).notNull().default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull().default("0"),
+  notes: text("notes"),
+  convertedInvoiceId: integer("converted_invoice_id"),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const estimateItems = pgTable("estimate_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  estimateId: integer("estimate_id").notNull(),
+  feeId: integer("fee_id"),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users, {
-  permissions: z.array(z.string()),
+  permissions: z.array(z.string()).nullable().optional(),
   phone: z.string().min(1, "Phone number is required")
 });
 export const insertOwnerSchema = createInsertSchema(owners);
 export const insertPetSchema = createInsertSchema(pets);
 export const insertAppointmentSchema = createInsertSchema(appointments);
-export const insertMedicalRecordSchema = createInsertSchema(medicalRecords);
+export const insertMedicalRecordSchema = createInsertSchema(medicalRecords, {
+  diagnosis: z.string().default(""),
+  treatment: z.string().default(""),
+});
 export const insertRoleSchema = createInsertSchema(roles, { permissions: z.array(z.string()) });
 export const insertFeeStructureSchema = createInsertSchema(feeStructures);
 export const insertInvoiceSchema = createInsertSchema(invoices);
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems);
+export const insertEstimateSchema = createInsertSchema(estimates);
+export const insertEstimateItemSchema = createInsertSchema(estimateItems);
 
 export const clinicSettings = pgTable("clinic_settings", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -158,6 +196,10 @@ export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
 export type ClinicSetting = typeof clinicSettings.$inferSelect;
 export type InsertClinicSetting = z.infer<typeof insertClinicSettingSchema>;
+export type Estimate = typeof estimates.$inferSelect;
+export type InsertEstimate = z.infer<typeof insertEstimateSchema>;
+export type EstimateItem = typeof estimateItems.$inferSelect;
+export type InsertEstimateItem = z.infer<typeof insertEstimateItemSchema>;
 
 
 

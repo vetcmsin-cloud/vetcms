@@ -228,7 +228,7 @@ export function generatePatientReport({
                 </div>
                 <div class="info-group">
                     <div class="info-label">Age / Weight</div>
-                    <div class="info-value">${pet.age} years ${pet.weight ? `&bull; ${pet.weight}kg` : ''}</div>
+                    <div class="info-value">${[pet.age > 0 ? `${pet.age} year${pet.age !== 1 ? 's' : ''}` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths} month${pet.ageMonths !== 1 ? 's' : ''}` : ""].filter(Boolean).join(" ") || "< 1 month"} ${pet.weight ? `&bull; ${pet.weight}kg` : ''}</div>
                 </div>
             </div>
 

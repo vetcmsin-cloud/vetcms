@@ -24,6 +24,7 @@ import AdminBackup from "@/pages/admin-backup";
 import AdminFees from "@/pages/admin-fees";
 import AdminBilling from "@/pages/admin-billing";
 import AdminRoles from "@/pages/admin-roles";
+import EstimatesPage from "@/pages/estimates";
 import AdminUserRights from "@/pages/admin-user-rights";
 import AdminData from "@/pages/admin-data";
 
@@ -60,6 +61,10 @@ function Router() {
           <Route path="/inventory" component={InventoryPage} />
           <Route path="/suppliers" component={SuppliersPage} />
           <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+        </>
+      )}
+      {hasPermission("reports.view", "inventory.view", "inventory.manage") && (
+        <>
           <Route path="/reports/stock" component={StockReportPage} />
           <Route path="/reports/purchase" component={PurchaseReportPage} />
         </>
@@ -67,8 +72,11 @@ function Router() {
       {hasPermission("accounts.view", "accounts.manage") && (
         <Route path="/accounts" component={AccountsPage} />
       )}
-      {hasPermission("billing.view", "billing.manage") && (
-        <Route path="/billing" component={AdminBilling} />
+      {hasPermission("billing.view", "billing.manage", "billing.create", "billing.edit") && (
+        <>
+          <Route path="/billing" component={AdminBilling} />
+          <Route path="/estimates" component={EstimatesPage} />
+        </>
       )}
       {hasPermission("admin_dashboard.view") && (
         <>
@@ -83,8 +91,10 @@ function Router() {
           {hasPermission("data.erase") && (
             <Route path="/admin/data" component={AdminData} />
           )}
-          <Route path="/activity-log" component={ActivityLogPage} />
         </>
+      )}
+      {hasPermission("activity_log.view") && (
+        <Route path="/activity-log" component={ActivityLogPage} />
       )}
       <Route component={NotFound} />
     </Switch>

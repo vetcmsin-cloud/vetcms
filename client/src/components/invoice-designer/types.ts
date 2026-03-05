@@ -23,6 +23,10 @@ export type InvoiceFieldKey =
     | "regNumber"
     | "patientName"
     | "ownerName"
+    | "patientGender"
+    | "patientAge"
+    | "patientSpecies"
+    | "patientBreed"
     | "serialNumber" // Auto-increment or custom?
     | "terms"
     | "qrCode"

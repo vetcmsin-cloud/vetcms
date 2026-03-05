@@ -76,7 +76,9 @@ function PatientInfoTab({ pet }: { pet: Pet }) {
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Age</span>
-          <span className="text-sm font-semibold" data-testid="text-pet-age">{pet.age} year{pet.age !== 1 ? "s" : ""}</span>
+          <span className="text-sm font-semibold" data-testid="text-pet-age">
+            {[pet.age > 0 ? `${pet.age} year${pet.age !== 1 ? "s" : ""}` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths} month${pet.ageMonths !== 1 ? "s" : ""}` : ""].filter(Boolean).join(" ") || "< 1 month"}
+          </span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Weight</span>
@@ -235,14 +237,14 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
 
   // Structured Plan fields
   const [procedures, setProcedures] = useState("");
-  const [medications, setMedications] = useState("");
+  const [medications, setMedications] = useState<string[]>([""]);
   const [planInstructions, setPlanInstructions] = useState("");
   const [templateOpen, setTemplateOpen] = useState(false);
 
   // Serialise plan for API
   const plan = [
     procedures ? `Procedures/Tests: ${procedures}` : "",
-    medications ? `Medications/Dosage: ${medications}` : "",
+    medications.some(m => m.trim()) ? `Medications/Dosage:\n${medications.filter(m => m.trim()).map((m, i) => `  ${i + 1}. ${m.trim()}`).join("\n")}` : "",
     planInstructions ? `Instructions: ${planInstructions}` : "",
   ].filter(Boolean).join("\n");
 
@@ -270,7 +272,7 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     setDiagnosisSelected("");
     setAssessmentNotes("");
     setProcedures("");
-    setMedications("");
+    setMedications([""]);
     setPlanInstructions("");
   };
 
@@ -448,7 +450,7 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     },
   });
 
-  const canSubmit = assessment.trim().length > 0 && plan.trim().length > 0;
+  const canSubmit = true; // All SOAP fields are now optional
 
   // ── Inline Edit State ──
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -459,6 +461,10 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
   const editMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: typeof editFields }) => {
       const res = await apiRequest("PATCH", `/api/medical-records/${id}`, data);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to update record" }));
+        throw new Error(err.message || "Failed to update record");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -471,16 +477,14 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     },
   });
 
-  // Helper: is this record editable by current user within 24 hrs?
+  // Helper: is this record editable by current user?
   const isEditable = (record: any) => {
     if (!record.createdAt) return false;
-    if (record.createdBy !== user?.id) return false;
-    const hrs = (Date.now() - new Date(record.createdAt).getTime()) / (1000 * 60 * 60);
-    return hrs <= 24;
+    return record.createdBy === user?.id;
   };
 
   return (
-    <div className="flex flex-col gap-5 py-4" data-testid="tab-content-medical-records">
+    <div className="flex flex-col gap-5 py-4" data- testid="tab-content-medical-records" >
       {canAddRecords && (
         <Card>
           <CardContent className="p-4">
@@ -684,7 +688,8 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
                           className="w-full text-left px-3 py-2 text-xs hover:bg-primary/10 hover:text-primary border-t first:border-0 transition-colors"
                           onClick={() => {
                             setProcedures(t.procedures);
-                            setMedications(t.medications);
+                            // Split template medications by semicolon into separate rows
+                            setMedications(t.medications.split(";").map(m => m.trim()).filter(Boolean));
                             setPlanInstructions(t.instructions);
                             setTemplateOpen(false);
                           }}
@@ -712,19 +717,72 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
                 />
               </div>
 
-              {/* Medications / Dosage */}
+              {/* Medications / Dosage — multi-row editor */}
               <div className="flex flex-col gap-1">
                 <Label className="text-[11px] text-muted-foreground font-medium">
                   Medications / Dosage
-                  <span className="ml-1 font-normal opacity-60">(Rx name, frequency, duration)</span>
+                  <span className="ml-1 font-normal opacity-60">(Rx name, frequency, duration — Enter to add next)</span>
                 </Label>
-                <Input
-                  placeholder="e.g. Amoxicillin 20mg/kg BID x 7 days"
-                  value={medications}
-                  onChange={(e) => setMedications(e.target.value)}
-                  className="h-8 text-sm"
-                  data-testid="input-soap-medications"
-                />
+                <div className="flex flex-col gap-1.5">
+                  {medications.map((med, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground w-4 text-right shrink-0 font-mono">{idx + 1}.</span>
+                      <Input
+                        placeholder={idx === 0 ? "e.g. Amoxicillin 20mg/kg BID x 7 days" : "Next medication..."}
+                        value={med}
+                        onChange={(e) => {
+                          const next = [...medications];
+                          next[idx] = e.target.value;
+                          setMedications(next);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const next = [...medications];
+                            // Insert new empty row after current
+                            next.splice(idx + 1, 0, "");
+                            setMedications(next);
+                            // Focus the newly created input after render
+                            setTimeout(() => {
+                              const inputs = document.querySelectorAll<HTMLInputElement>('[data-med-input]');
+                              inputs[idx + 1]?.focus();
+                            }, 30);
+                          } else if (e.key === "Backspace" && med === "" && medications.length > 1) {
+                            // Remove empty row on backspace if there's more than one
+                            e.preventDefault();
+                            const next = medications.filter((_, i) => i !== idx);
+                            setMedications(next);
+                            setTimeout(() => {
+                              const inputs = document.querySelectorAll<HTMLInputElement>('[data-med-input]');
+                              inputs[Math.max(0, idx - 1)]?.focus();
+                            }, 30);
+                          }
+                        }}
+                        className="h-8 text-sm flex-1"
+                        data-med-input
+                        data-testid={`input-soap-medications-${idx}`}
+                      />
+                      {medications.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setMedications(medications.filter((_, i) => i !== idx))}
+                          className="text-muted-foreground hover:text-destructive transition-colors shrink-0 p-0.5 rounded"
+                          title="Remove"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setMedications([...medications, ""])}
+                    className="self-start text-[11px] text-primary/70 hover:text-primary transition-colors flex items-center gap-1 mt-0.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                    Add medication
+                  </button>
+                </div>
               </div>
 
               {/* Instructions / Client Education */}
@@ -878,7 +936,7 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
           </div>
         )}
       </div>
-    </div>
+    </div >
   );
 }
 

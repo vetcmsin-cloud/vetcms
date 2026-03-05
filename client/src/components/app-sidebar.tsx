@@ -46,12 +46,16 @@ const mainNav = [
   { title: "Lab", url: "/lab", icon: FlaskConical, permissions: ["medical_records.view", "medical_records.manage"] },
   { title: "Accounts", url: "/accounts", icon: Wallet, permissions: ["accounts.view", "accounts.manage"] },
   { title: "Billing", url: "/billing", icon: Receipt, permissions: ["billing.view", "billing.manage"] },
+  { title: "Estimates", url: "/estimates", icon: ClipboardList, permissions: ["billing.view", "billing.create", "billing.edit"] },
 ];
 
 const inventoryNav = [
   { title: "Inventory", url: "/inventory", icon: Package },
   { title: "Suppliers", url: "/suppliers", icon: Truck },
   { title: "Purchase Orders", url: "/purchase-orders", icon: ShoppingCart },
+];
+
+const reportsNav = [
   { title: "Stock Report", url: "/reports/stock", icon: BarChart3 },
   { title: "Purchase Report", url: "/reports/purchase", icon: ClipboardList },
 ];
@@ -59,7 +63,7 @@ const inventoryNav = [
 const adminNav = [
   { title: "Admin Dashboard", url: "/admin", icon: Settings, permissions: ["admin_dashboard.view"] },
   { title: "User Management", url: "/users", icon: Shield, permissions: ["user_management.view", "user_management.manage"] },
-  { title: "Activity Log", url: "/activity-log", icon: Activity, permissions: ["activity_log.view", "admin_dashboard.view"] },
+  { title: "Activity Log", url: "/activity-log", icon: Activity, permissions: ["activity_log.view"] },
 ];
 
 function roleLabel(role: string) {
@@ -148,6 +152,35 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        {user && hasPermission("reports.view", "inventory.view", "inventory.manage") && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Reports</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {reportsNav.map((item) => {
+                  const isActive = location === item.url || location.startsWith(item.url + "/");
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        <Link href={item.url}>
+                          <item.icon className="w-4 h-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+
 
         {visibleAdmin.length > 0 && (
           <SidebarGroup>

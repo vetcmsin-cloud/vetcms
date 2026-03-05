@@ -16,10 +16,13 @@ import {
   type Expense, type InsertExpense,
   type ActivityLog, type InsertActivityLog,
   type PetDocument, type InsertPetDocument,
+  type Estimate, type InsertEstimate,
+  type EstimateItem, type InsertEstimateItem,
   owners, pets, appointments, medicalRecords, users,
   roles, feeStructures, invoices, invoiceItems, clinicSettings,
   inventoryItems, expenses, suppliers, purchaseOrders, purchaseOrderItems,
   activityLogs, petDocuments,
+  estimates, estimateItems,
   type LabReport, type InsertLabReport, labReports,
   type LabCategory, type InsertLabCategory, labTestCategories,
   type LabTest, type InsertLabTest, labTests,
@@ -141,6 +144,7 @@ export interface IStorage {
   createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
   getActivityLogs(limit?: number, offset?: number, filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<ActivityLog[]>;
   getActivityLogCount(filters?: { userId?: number; entityType?: string; startDate?: string; endDate?: string }): Promise<number>;
+  deleteActivityLogs(beforeDate?: string): Promise<number>;
 
   // Pet Documents
   getPetDocuments(petId: number): Promise<PetDocument[]>;
@@ -167,6 +171,17 @@ export interface IStorage {
   createLabRefRange(range: InsertLabRefRange): Promise<LabRefRange>;
   updateLabRefRange(id: number, data: Partial<InsertLabRefRange>): Promise<LabRefRange | undefined>;
   deleteLabRefRange(id: number): Promise<void>;
+
+  // Estimates
+  getEstimates(): Promise<Estimate[]>;
+  getEstimate(id: number): Promise<Estimate | undefined>;
+  createEstimate(est: InsertEstimate): Promise<Estimate>;
+  updateEstimate(id: number, data: Partial<InsertEstimate>): Promise<Estimate | undefined>;
+  deleteEstimate(id: number): Promise<void>;
+  getNextEstimateNumber(): Promise<string>;
+  getEstimateItems(estimateId: number): Promise<EstimateItem[]>;
+  createEstimateItem(item: InsertEstimateItem): Promise<EstimateItem>;
+  deleteEstimateItemsByEstimate(estimateId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -359,7 +374,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
+    // Insert first with a temporary invoice number (to avoid constraint clashes),
+    // then update it to the real sequential number based on the assigned row id.
     const [created] = await db.insert(invoices).values(invoice).returning();
+    const realNumber = `#PET-${String(created.id).padStart(4, "0")}`;
+    if (created.invoiceNumber !== realNumber) {
+      const [updated] = await db
+        .update(invoices)
+        .set({ invoiceNumber: realNumber })
+        .where(eq(invoices.id, created.id))
+        .returning();
+      return updated;
+    }
     return created;
   }
 
@@ -374,6 +400,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNextInvoiceNumber(): Promise<string> {
+    // Base on actual count of invoices to give a preview number.
+    // The real number is assigned in createInvoice from the actual row id.
     const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(invoices);
     const nextNum = (result[0]?.maxId || 0) + 1;
     return `#PET-${String(nextNum).padStart(4, "0")}`;
@@ -662,6 +690,20 @@ export class DatabaseStorage implements IStorage {
     return Number(result.count);
   }
 
+  async deleteActivityLogs(beforeDate?: string): Promise<number> {
+    if (beforeDate) {
+      const cutoff = new Date(beforeDate + "T23:59:59");
+      const existing = await db.select({ count: sql<number>`count(*)` }).from(activityLogs).where(lte(activityLogs.timestamp, cutoff));
+      const count = Number(existing[0]?.count || 0);
+      await db.delete(activityLogs).where(lte(activityLogs.timestamp, cutoff));
+      return count;
+    }
+    const existing = await db.select({ count: sql<number>`count(*)` }).from(activityLogs);
+    const count = Number(existing[0]?.count || 0);
+    await db.delete(activityLogs);
+    return count;
+  }
+
   // Pet Documents
   async getPetDocuments(petId: number): Promise<PetDocument[]> {
     return db.select().from(petDocuments).where(eq(petDocuments.petId, petId)).orderBy(desc(petDocuments.uploadedAt));
@@ -751,6 +793,50 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLabRefRange(id: number): Promise<void> {
     await db.delete(labRefRanges).where(eq(labRefRanges.id, id));
+  }
+
+  // Estimates
+  async getEstimates(): Promise<Estimate[]> {
+    return db.select().from(estimates).orderBy(desc(estimates.createdAt));
+  }
+
+  async getEstimate(id: number): Promise<Estimate | undefined> {
+    const [est] = await db.select().from(estimates).where(eq(estimates.id, id));
+    return est;
+  }
+
+  async createEstimate(est: InsertEstimate): Promise<Estimate> {
+    const [created] = await db.insert(estimates).values(est).returning();
+    return created;
+  }
+
+  async updateEstimate(id: number, data: Partial<InsertEstimate>): Promise<Estimate | undefined> {
+    const [updated] = await db.update(estimates).set(data).where(eq(estimates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteEstimate(id: number): Promise<void> {
+    await db.delete(estimateItems).where(eq(estimateItems.estimateId, id));
+    await db.delete(estimates).where(eq(estimates.id, id));
+  }
+
+  async getNextEstimateNumber(): Promise<string> {
+    const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(estimates);
+    const nextNum = (result[0]?.maxId || 0) + 1;
+    return `EST-${String(nextNum).padStart(4, "0")}`;
+  }
+
+  async getEstimateItems(estimateId: number): Promise<EstimateItem[]> {
+    return db.select().from(estimateItems).where(eq(estimateItems.estimateId, estimateId));
+  }
+
+  async createEstimateItem(item: InsertEstimateItem): Promise<EstimateItem> {
+    const [created] = await db.insert(estimateItems).values(item).returning();
+    return created;
+  }
+
+  async deleteEstimateItemsByEstimate(estimateId: number): Promise<void> {
+    await db.delete(estimateItems).where(eq(estimateItems.estimateId, estimateId));
   }
 }
 
