@@ -40,7 +40,14 @@ export default async function handler(req: Request, res: Response) {
       });
     }
 
-    // 2. Delegate to Express and ensure the Promise waits until the response finishes
+    // 2. Normalize req.url so Express routes (which start with /api) always match
+    const originalUrl = req.url || "/";
+    if (!originalUrl.startsWith("/api") && !originalUrl.startsWith("/uploads") && !originalUrl.startsWith("/r")) {
+      req.url = "/api" + (originalUrl.startsWith("/") ? originalUrl : "/" + originalUrl);
+    }
+    console.log(`[Vercel API] ${req.method} ${originalUrl} -> ${req.url}`);
+
+    // 3. Delegate to Express and ensure the Promise waits until the response finishes
     return await new Promise<void>((resolve, reject) => {
       res.on("finish", resolve);
       res.on("close", resolve);
