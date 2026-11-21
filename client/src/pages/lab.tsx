@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { LabReportRenderer } from "@/components/document-designer/LabReportRenderer";
@@ -9,6 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BloodSmearBuilder } from "@/components/blood-smear-builder";
+import { WetFilmBuilder } from "@/components/wet-film-builder";
+import { VaginalCytologyBuilder } from "@/components/vaginal-cytology-builder";
 import {
     Dialog,
     DialogContent,
@@ -16,6 +22,16 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -63,22 +79,31 @@ import {
     ChevronsUpDown,
     Camera,
     Loader2,
-    Wifi
+    Wifi,
+    Settings,
+    Trash2,
+    X,
+    RotateCcw
 } from "lucide-react";
 import {
     type LabReport,
     type Pet,
     type Owner,
+    type Appointment,
     LAB_REPORT_CATEGORIES
 } from "@shared/schema";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
-import Tesseract from "tesseract.js";
+import { formatInTZ, getClinicTimezone } from "@/lib/timezone";
+import { cn, formatLocalTimestamp, formatWhatsAppLink, openWhatsAppLink } from "@/lib/utils";
+import { generatePDFFromElement } from "@/lib/pdf-generator";
+import { FaWhatsapp } from "react-icons/fa";
+// Tesseract is loaded lazily inside handleCbcImageUpload to avoid bundle/module issues
 
 function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }) {
     const [open, setOpen] = useState(false);
     const { toast } = useToast();
     const [ownerOpen, setOwnerOpen] = useState(false);
+    const [patientOpen, setPatientOpen] = useState(false);
     const [selectedOwnerId, setSelectedOwnerId] = useState<string>("");
 
     const [form, setForm] = useState({
@@ -89,19 +114,70 @@ function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }
         notes: "",
     });
 
-    // Filter pets based on selected owner
-    const filteredPets = selectedOwnerId
-        ? pets.filter(p => p.ownerId === parseInt(selectedOwnerId))
-        : [];
+    const { data: appointments } = useQuery<Appointment[]>({
+        queryKey: ["/api/appointments"],
+        enabled: open,
+    });
 
-    // Automatically select pet if only one exists for the owner
-    useEffect(() => {
-        if (selectedOwnerId && filteredPets.length === 1) {
-            setForm(prev => ({ ...prev, petId: String(filteredPets[0].id) }));
-        } else if (selectedOwnerId && filteredPets.length === 0) {
-            setForm(prev => ({ ...prev, petId: "" })); // Reset if no pets
+    // Map petId -> latest appointment ID
+    const petLatestActivity = useMemo(() => {
+        const map: Record<number, number> = {};
+        if (appointments) {
+            appointments.forEach(apt => {
+                if (apt.petId) {
+                    map[apt.petId] = Math.max(map[apt.petId] || 0, apt.id);
+                }
+            });
         }
-    }, [selectedOwnerId, filteredPets.length]);
+        return map;
+    }, [appointments]);
+
+    // Map ownerId -> latest appointment ID
+    const ownerLatestActivity = useMemo(() => {
+        const map: Record<number, number> = {};
+        if (appointments) {
+            appointments.forEach(apt => {
+                if (apt.ownerId) {
+                    map[apt.ownerId] = Math.max(map[apt.ownerId] || 0, apt.id);
+                }
+            });
+        }
+        return map;
+    }, [appointments]);
+
+    // Sorted owners for search suggestion: latest appointment owner first
+    const sortedOwners = useMemo(() => {
+        return [...owners].sort((a, b) => {
+            const activityA = ownerLatestActivity[a.id] || 0;
+            const activityB = ownerLatestActivity[b.id] || 0;
+            if (activityB !== activityA) return activityB - activityA;
+            return b.id - a.id;
+        });
+    }, [owners, ownerLatestActivity]);
+
+    // Sorted pets for search suggestion: latest appointment pet first
+    const sortedPets = useMemo(() => {
+        const list = selectedOwnerId
+            ? pets.filter(p => p.ownerId === parseInt(selectedOwnerId))
+            : pets;
+
+        return [...list].sort((a, b) => {
+            const activityA = petLatestActivity[a.id] || 0;
+            const activityB = petLatestActivity[b.id] || 0;
+            if (activityB !== activityA) return activityB - activityA;
+            return b.id - a.id;
+        });
+    }, [pets, selectedOwnerId, petLatestActivity]);
+
+    // Automatically select pet if only one exists for the selected owner
+    useEffect(() => {
+        if (selectedOwnerId) {
+            const ownerPets = pets.filter(p => p.ownerId === parseInt(selectedOwnerId));
+            if (ownerPets.length === 1) {
+                setForm(prev => ({ ...prev, petId: String(ownerPets[0].id) }));
+            }
+        }
+    }, [selectedOwnerId, pets]);
 
     const { data: categories } = useQuery<any[]>({
         queryKey: ["/api/lab-settings/categories"],
@@ -133,6 +209,8 @@ function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }
                 notes: "",
             });
             setSelectedOwnerId("");
+            setOwnerOpen(false);
+            setPatientOpen(false);
             toast({ title: "Order Created", description: "New lab order has been created." });
         },
         onError: (err: Error) => {
@@ -144,6 +222,14 @@ function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }
         const owner = owners.find(o => String(o.id) === ownerId);
         if (!owner) return "Select owner";
         return `${owner.firstName} ${owner.lastName} (${owner.phone})`;
+    };
+
+    const getPatientDisplay = (petId: string) => {
+        const pet = pets.find(p => String(p.id) === petId);
+        if (!pet) return "Select patient";
+        const owner = owners.find(o => o.id === pet.ownerId);
+        const ownerStr = owner ? ` - ${owner.firstName} ${owner.lastName}` : "";
+        return `${pet.name} (${pet.species || 'Pet'})${ownerStr}`;
     };
 
     return (
@@ -161,100 +247,214 @@ function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }
                     <DialogTitle>Create New Lab Order</DialogTitle>
                 </DialogHeader>
                 <div className="flex flex-col gap-4 mt-2">
-                    <div className="flex flex-col gap-1.5">
-                        <Label>Owner</Label>
-                        <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
-                            <PopoverTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={ownerOpen}
-                                    className="justify-between w-full"
-                                >
-                                    {selectedOwnerId ? getOwnerDisplay(selectedOwnerId) : "Select owner..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                                <Command>
-                                    <CommandInput placeholder="Search by owner, phone, or patient name..." />
-                                    <CommandList>
-                                        <CommandEmpty>No owner found.</CommandEmpty>
-                                        <CommandGroup>
-                                            {owners.map((owner) => {
-                                                const ownerPets = pets.filter(p => p.ownerId === owner.id);
-                                                const petNames = ownerPets.map(p => p.name).join(" ");
-                                                return (
-                                                    <CommandItem
-                                                        key={owner.id}
-                                                        value={`${owner.firstName} ${owner.lastName} ${owner.phone} ${petNames}`}
-                                                        onSelect={() => {
-                                                            setSelectedOwnerId(String(owner.id));
-                                                            setOwnerOpen(false);
-                                                            // Reset pet selection when owner changes, unless auto-selected by effect
-                                                            if (String(owner.id) !== selectedOwnerId) {
-                                                                setForm(prev => ({ ...prev, petId: "" }));
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Check
-                                                            className={cn(
-                                                                "mr-2 h-4 w-4 shrink-0",
-                                                                selectedOwnerId === String(owner.id) ? "opacity-100" : "opacity-0"
-                                                            )}
-                                                        />
-                                                        <div className="flex flex-col gap-0.5 min-w-0">
-                                                            <span className="font-medium truncate">{owner.firstName} {owner.lastName} ({owner.phone})</span>
-                                                            {ownerPets.length > 0 && (
-                                                                <span className="text-[10px] text-muted-foreground truncate">
-                                                                    Patients: {ownerPets.map(p => p.name).join(', ')}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </CommandItem>
-                                                );
-                                            })}
-                                        </CommandGroup>
-                                    </CommandList>
-                                </Command>
-                            </PopoverContent>
-                        </Popover>
+                    {/* Filter Active Reset Bar */}
+                    {(selectedOwnerId || form.petId) && (
+                        <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5 rounded-md border text-xs">
+                            <span className="text-muted-foreground font-medium">
+                                Active Selection Applied
+                            </span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => {
+                                    setSelectedOwnerId("");
+                                    setForm(prev => ({ ...prev, petId: "" }));
+                                }}
+                            >
+                                <RotateCcw className="w-3 h-3 mr-1" /> Clear Selection
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* Direct Search by Owner OR Search by Patient */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Owner Selector */}
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                                <Label>Filter by Owner</Label>
+                                {selectedOwnerId && (
+                                    <button
+                                        type="button"
+                                        className="text-[11px] text-destructive hover:underline flex items-center gap-0.5 font-medium"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedOwnerId("");
+                                        }}
+                                    >
+                                        <X className="w-3 h-3" /> Clear
+                                    </button>
+                                )}
+                            </div>
+                            <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={ownerOpen}
+                                        className="justify-between w-full text-left font-normal"
+                                    >
+                                        <span className="truncate">
+                                            {selectedOwnerId ? getOwnerDisplay(selectedOwnerId) : "Select owner..."}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Search owner, phone, or patient..." />
+                                        <CommandList>
+                                            <CommandEmpty>No owner found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {sortedOwners.map((owner, idx) => {
+                                                    const ownerPets = pets.filter(p => p.ownerId === owner.id);
+                                                    const petNames = ownerPets.map(p => p.name).join(" ");
+                                                    return (
+                                                        <CommandItem
+                                                            key={owner.id}
+                                                            value={`${owner.firstName} ${owner.lastName} ${owner.phone} ${petNames}`}
+                                                            onSelect={() => {
+                                                                const newOwnerId = String(owner.id);
+                                                                setSelectedOwnerId(newOwnerId);
+                                                                setOwnerOpen(false);
+                                                                if (newOwnerId !== selectedOwnerId) {
+                                                                    const oPets = pets.filter(p => p.ownerId === owner.id);
+                                                                    if (oPets.length === 1) {
+                                                                        setForm(prev => ({ ...prev, petId: String(oPets[0].id) }));
+                                                                    } else {
+                                                                        setForm(prev => ({ ...prev, petId: "" }));
+                                                                    }
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4 shrink-0",
+                                                                    selectedOwnerId === String(owner.id) ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                                                <div className="flex items-center gap-1.5 font-medium truncate">
+                                                                    <span>{owner.firstName} {owner.lastName} ({owner.phone})</span>
+                                                                    {idx === 0 && (
+                                                                        <span className="text-[9px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded">Latest</span>
+                                                                    )}
+                                                                </div>
+                                                                {ownerPets.length > 0 && (
+                                                                    <span className="text-[10px] text-muted-foreground truncate">
+                                                                        Patients: {ownerPets.map(p => p.name).join(', ')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </CommandItem>
+                                                    );
+                                                })}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+
+                        {/* Patient Selector */}
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                                <Label>Search / Select Patient</Label>
+                                {form.petId && (
+                                    <button
+                                        type="button"
+                                        className="text-[11px] text-destructive hover:underline flex items-center gap-0.5 font-medium"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setForm(prev => ({ ...prev, petId: "" }));
+                                        }}
+                                    >
+                                        <X className="w-3 h-3" /> Clear
+                                    </button>
+                                )}
+                            </div>
+                            <Popover open={patientOpen} onOpenChange={setPatientOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={patientOpen}
+                                        className="justify-between w-full text-left font-normal"
+                                    >
+                                        <span className="truncate">
+                                            {form.petId ? getPatientDisplay(form.petId) : "Select patient..."}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Search patient name, species, breed..." />
+                                        <CommandList>
+                                            <CommandEmpty>No patient found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {sortedPets.map((pet, idx) => {
+                                                    const owner = owners.find(o => o.id === pet.ownerId);
+                                                    const ownerName = owner ? `${owner.firstName} ${owner.lastName}` : "";
+                                                    const ownerPhone = owner?.phone || "";
+                                                    return (
+                                                        <CommandItem
+                                                            key={pet.id}
+                                                            value={`${pet.name} ${pet.species || ""} ${pet.breed || ""} ${ownerName} ${ownerPhone}`}
+                                                            onSelect={() => {
+                                                                setForm(prev => ({ ...prev, petId: String(pet.id) }));
+                                                                if (pet.ownerId) {
+                                                                    setSelectedOwnerId(String(pet.ownerId));
+                                                                }
+                                                                setPatientOpen(false);
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4 shrink-0",
+                                                                    form.petId === String(pet.id) ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                                                <div className="flex items-center gap-1.5 font-medium truncate">
+                                                                    <span>{pet.name} ({pet.species}{pet.breed ? `, ${pet.breed}` : ""})</span>
+                                                                    {idx === 0 && (
+                                                                        <span className="text-[9px] bg-primary/10 text-primary font-bold px-1.5 py-0.5 rounded">Latest</span>
+                                                                    )}
+                                                                </div>
+                                                                {owner && (
+                                                                    <span className="text-[10px] text-muted-foreground truncate">
+                                                                        Owner: {ownerName} ({ownerPhone})
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </CommandItem>
+                                                    );
+                                                })}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                            <Label>Patient</Label>
-                            <Select
-                                value={form.petId}
-                                onValueChange={(v) => setForm({ ...form, petId: v })}
-                                disabled={!selectedOwnerId}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder={selectedOwnerId ? "Select patient" : "Select owner first"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {filteredPets.map((p) => (
-                                        <SelectItem key={p.id} value={String(p.id)}>
-                                            {p.name} ({p.species})
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                            <Label htmlFor="order-date">Date</Label>
-                            <Input
-                                id="order-date"
-                                type="date"
-                                value={form.date}
-                                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                            />
-                        </div>
+                    <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="order-date">Date</Label>
+                        <Input
+                            id="order-date"
+                            type="date"
+                            value={form.date}
+                            onChange={(e) => setForm({ ...form, date: e.target.value })}
+                        />
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                         <Label>Category</Label>
-                        <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                        <Select value={form.category} onValueChange={(v) => {
+                            setForm({ ...form, category: v, title: "" }) // Reset title on category change
+                        }}>
                             <SelectTrigger>
                                 <SelectValue />
                             </SelectTrigger>
@@ -267,8 +467,114 @@ function CreateLabOrderDialog({ pets, owners }: { pets: Pet[], owners: Owner[] }
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {(form.category === "Hematology" || form.category === "Hematology & Blood Chemistry") && (
+                        <div className="flex flex-col gap-2 border p-3 rounded-md bg-muted/20">
+                            <Label className="mb-1 text-sm font-semibold">Select Tests</Label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="test-cbc"
+                                        checked={form.title.includes("CBC")}
+                                        onCheckedChange={(checked) => {
+                                            const parts = form.title ? form.title.split(" + ").filter(Boolean) : [];
+                                            if (checked) {
+                                                if (!parts.includes("CBC Test")) parts.push("CBC Test");
+                                            } else {
+                                                const idx = parts.indexOf("CBC Test");
+                                                if (idx > -1) parts.splice(idx, 1);
+                                            }
+                                            setForm(prev => ({ ...prev, title: parts.join(" + ") }));
+                                        }}
+                                    />
+                                    <Label htmlFor="test-cbc" className="cursor-pointer text-sm font-medium">CBC Test</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="test-bs"
+                                        checked={form.title.includes("Blood Smear")}
+                                        onCheckedChange={(checked) => {
+                                            const parts = form.title ? form.title.split(" + ").filter(Boolean) : [];
+                                            if (checked) {
+                                                if (!parts.includes("Blood Smear Test")) parts.push("Blood Smear Test");
+                                            } else {
+                                                const idx = parts.indexOf("Blood Smear Test");
+                                                if (idx > -1) parts.splice(idx, 1);
+                                            }
+                                            setForm(prev => ({ ...prev, title: parts.join(" + ") }));
+                                        }}
+                                    />
+                                    <Label htmlFor="test-bs" className="cursor-pointer text-sm font-medium">Blood Smear Test</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="test-wf"
+                                        checked={form.title.includes("Wet Film")}
+                                        onCheckedChange={(checked) => {
+                                            const parts = form.title ? form.title.split(" + ").filter(Boolean) : [];
+                                            if (checked) {
+                                                if (!parts.includes("Wet Film Test")) parts.push("Wet Film Test");
+                                            } else {
+                                                const idx = parts.indexOf("Wet Film Test");
+                                                if (idx > -1) parts.splice(idx, 1);
+                                            }
+                                            setForm(prev => ({ ...prev, title: parts.join(" + ") }));
+                                        }}
+                                    />
+                                    <Label htmlFor="test-wf" className="cursor-pointer text-sm font-medium">Wet Film Test</Label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {form.category === "Reproductive" && (
+                        <div className="flex flex-col gap-2 border p-3 rounded-md bg-rose-50/40 border-rose-200">
+                            <Label className="mb-1 text-sm font-semibold text-rose-800">Reproductive Test</Label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="test-evc"
+                                        checked={form.title.includes("EVC") || form.title.includes("Vaginal Cytology")}
+                                        onCheckedChange={(checked) => {
+                                            const parts = form.title ? form.title.split(" + ").filter(Boolean) : [];
+                                            if (checked) {
+                                                if (!parts.some(p => p.includes("EVC") || p.includes("Vaginal Cytology"))) {
+                                                    parts.push("Vaginal Cytology (EVC)");
+                                                }
+                                            } else {
+                                                const idx = parts.findIndex(p => p.includes("EVC") || p.includes("Vaginal Cytology"));
+                                                if (idx > -1) parts.splice(idx, 1);
+                                            }
+                                            setForm(prev => ({ ...prev, title: parts.join(" + ") }));
+                                        }}
+                                    />
+                                    <Label htmlFor="test-evc" className="cursor-pointer text-sm font-medium">Vaginal Cytology (EVC)</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="test-prog"
+                                        checked={form.title.includes("Progesterone")}
+                                        onCheckedChange={(checked) => {
+                                            const parts = form.title ? form.title.split(" + ").filter(Boolean) : [];
+                                            if (checked) {
+                                                if (!parts.some(p => p.includes("Progesterone"))) {
+                                                    parts.push("Progesterone Assay Test");
+                                                }
+                                            } else {
+                                                const idx = parts.findIndex(p => p.includes("Progesterone"));
+                                                if (idx > -1) parts.splice(idx, 1);
+                                            }
+                                            setForm(prev => ({ ...prev, title: parts.join(" + ") }));
+                                        }}
+                                    />
+                                    <Label htmlFor="test-prog" className="cursor-pointer text-sm font-medium">Progesterone Assay Test</Label>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="test-title">Test Name / Title</Label>
+                        <Label htmlFor="test-title">Test Name / Title {(form.category === "Hematology" || form.category === "Hematology & Blood Chemistry" || form.category === "Reproductive") ? "(Other/Custom)" : ""}</Label>
                         <Input
                             id="test-title"
                             placeholder="e.g. Complete Blood Count"
@@ -334,6 +640,8 @@ export default function LabDashboard() {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "completed">("all");
     const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [, setLocation] = useLocation();
+    const { hasPermission } = useAuth();
 
     const { data: reports, isLoading } = useQuery<LabReport[]>({ queryKey: ["/api/lab-reports"] });
     const { data: pets } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
@@ -357,7 +665,13 @@ export default function LabDashboard() {
                 r.category.toLowerCase().includes(searchLower)
             );
         })
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        .sort((a, b) => {
+            // Latest created lab order first (highest ID & creation time)
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            if (timeB !== timeA) return timeB - timeA;
+            return b.id - a.id;
+        });
 
     // Printing Logic similar to LabReportsTab
     const { data: settings, isLoading: isLoadingSettings } = useQuery<Record<string, string>>({
@@ -365,10 +679,11 @@ export default function LabDashboard() {
     });
 
     const [printReportId, setPrintReportId] = useState<number | null>(null);
+    const [whatsappReportId, setWhatsappReportId] = useState<number | null>(null);
 
     const reportToPrint = useMemo(() => {
-        return reports?.find(r => r.id === printReportId);
-    }, [reports, printReportId]);
+        return reports?.find(r => r.id === (printReportId || whatsappReportId));
+    }, [reports, printReportId, whatsappReportId]);
 
     const petToPrint = useMemo(() => {
         if (!reportToPrint || !pets) return undefined;
@@ -403,6 +718,38 @@ export default function LabDashboard() {
             }
         }
 
+        // Backward compatibility: old "Imaging" records fall back to Ultrasonography layout
+        if (reportToPrint.category === "Imaging" && settings["labReportLayout_Ultrasonography"]) {
+            try {
+                return JSON.parse(settings["labReportLayout_Ultrasonography"]);
+            } catch (e) {
+                console.error(`Failed to parse Ultrasonography layout fallback for Imaging`, e);
+            }
+        }
+
+        // Default layout for Reproductive reports so the Cycle Timeline panel always appears in-flow
+        if (reportToPrint.category === "Reproductive") {
+            return [
+                { id: "customer_details_default", type: "panel", isVisible: true, label: "Customer / Patient Details", panelKey: "customer_details", x: 40, y: 170, width: 714, height: 200 },
+                { id: "evc_panel_default", type: "panel", isVisible: true, label: "Vaginal Cytology (EVC)", panelKey: "evc_panel", x: 40, y: 380, width: 714, height: 320, position: "body" },
+                { id: "progesterone_panel_default", type: "panel", isVisible: true, label: "Progesterone Assay", panelKey: "progesterone_panel", x: 40, y: 710, width: 714, height: 250, position: "body" },
+                { id: "summary_default", type: "field", field: "summary", isVisible: true, label: "Summary / Conclusion", position: "body", x: 40, y: 970, width: 714, height: 120 },
+                { id: "cycle_timeline_panel_default", type: "panel", isVisible: true, label: "Cycle Timeline", panelKey: "cycle_timeline_panel", x: 40, y: 1100, width: 714, height: 140, position: "body" },
+                { id: "notes_default", type: "field", field: "notes", isVisible: true, label: "Notes", position: "body", x: 40, y: 1250, width: 714, height: 80 },
+            ];
+        }
+
+        // Default layout for Ultrasonography reports — mirrors what the Design Studio saves
+        if (reportToPrint.category === "Ultrasonography" || reportToPrint.category === "Imaging") {
+            return [
+                { id: "customer_details_usg", type: "panel", isVisible: true, label: "Customer / Patient Details", panelKey: "customer_details", x: 40, y: 170, width: 714, height: 160 },
+                { id: "usg_panel_default", type: "panel", isVisible: true, label: "USG / Ultrasonography Findings", panelKey: "usg_panel", position: "body", x: 40, y: 340, width: 714, height: 580 },
+                { id: "impression_panel_default", type: "panel", isVisible: true, label: "Impression", panelKey: "impression_panel", position: "body", x: 40, y: 930, width: 714, height: 80 },
+                { id: "suggestion_panel_default", type: "panel", isVisible: true, label: "Suggestion", panelKey: "suggestion_panel", position: "body", x: 40, y: 1020, width: 714, height: 80 },
+                { id: "notes_usg_default", type: "field", field: "notes", isVisible: true, label: "Notes", position: "body", x: 40, y: 1110, width: 714, height: 80 },
+            ];
+        }
+
         return undefined;
     }, [reportToPrint, settings]);
 
@@ -418,12 +765,25 @@ export default function LabDashboard() {
 
     return (
         <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto min-h-screen bg-muted/20">
-            <div className="flex flex-col gap-2 mb-2">
-                <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-                    <FlaskConical className="w-8 h-8 text-primary" />
-                    Lab Dashboard
-                </h1>
-                <p className="text-muted-foreground">Manage laboratory orders, results, and reports.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+                <div className="flex flex-col gap-2">
+                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+                        <FlaskConical className="w-8 h-8 text-primary" />
+                        Lab Dashboard
+                    </h1>
+                    <p className="text-muted-foreground">Manage laboratory orders, results, and reports.</p>
+                </div>
+                {hasPermission("admin_dashboard.view") && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="gap-2"
+                        onClick={() => setLocation("/admin/lab-settings")}
+                    >
+                        <Settings className="w-4 h-4" />
+                        Lab Configuration
+                    </Button>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -510,10 +870,15 @@ export default function LabDashboard() {
                 `}
             </style>
 
+            {/* Preload Background Image */}
+            {settings?.labReportBackgroundImage && (
+                <img src={settings.labReportBackgroundImage} className="absolute w-0 h-0 opacity-0 pointer-events-none" alt="Preload Background" />
+            )}
+
             {/* Hidden Print Container */}
-            {printReportId && reportToPrint && petToPrint && ownerToPrint && (
+            {(printReportId || whatsappReportId) && reportToPrint && petToPrint && ownerToPrint && (
                 createPortal(
-                    <div id="printable-lab-report-container" className="hidden print:block">
+                    <div id="printable-lab-report-container" className="fixed -left-[2000px] print:left-0">
                         <LabReportRenderer
                             settings={settings || {}}
                             report={reportToPrint}
@@ -530,12 +895,15 @@ export default function LabDashboard() {
                 reports={filteredReports || []}
                 isLoading={isLoading}
                 pets={pets || []}
+                owners={owners || []}
                 statusFilter={statusFilter}
                 search={search}
                 setSearch={setSearch}
                 isSearchOpen={isSearchOpen}
                 setIsSearchOpen={setIsSearchOpen}
                 onPrint={(id) => setPrintReportId(id)}
+                onWhatsAppPdfRequest={(id) => setWhatsappReportId(id)}
+                onWhatsAppPdfClear={() => setWhatsappReportId(null)}
             />
         </div>
     );
@@ -545,25 +913,201 @@ function LabReportsList({
     reports,
     isLoading,
     pets,
+    owners,
     statusFilter,
     search,
     setSearch,
     isSearchOpen,
     setIsSearchOpen,
-    onPrint
+    onPrint,
+    onWhatsAppPdfRequest,
+    onWhatsAppPdfClear
 }: {
     reports: LabReport[],
     isLoading: boolean,
     pets: Pet[],
+    owners: Owner[],
     statusFilter: string,
     search?: string,
     setSearch?: (v: string) => void,
     isSearchOpen?: boolean,
     setIsSearchOpen?: (v: boolean) => void,
-    onPrint?: (id: number) => void
+    onPrint?: (id: number) => void,
+    onWhatsAppPdfRequest?: (id: number) => void,
+    onWhatsAppPdfClear?: () => void
 }) {
     const [selectedReport, setSelectedReport] = useState<LabReport | null>(null);
+    const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
     const { toast } = useToast();
+    const { hasPermission } = useAuth();
+    const canDelete = hasPermission("medical_records.delete", "admin_dashboard.view");
+    const [displayCount, setDisplayCount] = useState(24);
+    const { data: clinicSettings } = useQuery<Record<string, string>>({ queryKey: ["/api/clinic-settings"] });
+    const tz = getClinicTimezone(clinicSettings);
+
+    // Display helper: map legacy "Imaging" to "Ultrasonography" for UI labels
+    const formatCategory = (cat: string) => cat === "Imaging" ? "Ultrasonography" : cat;
+
+    const handleWhatsAppShare = (report: LabReport, e?: React.MouseEvent) => {
+        if (e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+
+        const pet = pets?.find(p => String(p.id) === String(report.petId));
+        const owner = pet?.ownerId ? owners?.find(o => String(o.id) === String(pet.ownerId)) : null;
+
+        if (!owner || !owner.phone) {
+            toast({
+                title: "WhatsApp Share Failed",
+                description: pet ? `Owner phone number not found for pet "${pet.name}".` : "Patient or owner details not found for this report.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        const clinicName = clinicSettings?.clinicName || "PetPoint Pro Veterinary Clinic";
+        const reportDate = formatLocalTimestamp(report.createdAt || report.date);
+        const ownerFullName = `${owner.firstName} ${owner.lastName || ""}`.trim();
+        const petName = pet?.name || "Patient";
+        const categoryFormatted = formatCategory(report.category);
+        const statusFormatted = report.status ? report.status.toUpperCase() : "COMPLETED";
+
+        const template = clinicSettings?.whatsappLabReportTemplate;
+        const defaultTemplate = `*Lab Report Notification*
+
+Dear {ownerName},
+Here is the lab report for your pet *{petName}*:
+
+🧪 Test: {testTitle}
+🏷️ Category: {category}
+📅 Date: {reportDate}
+📌 Status: {status}
+{resultSummary}
+🔗 View Full Report: {reportUrl}
+
+Thank you,
+{clinicName}`;
+
+        const formatMessage = (shortUrl: string = "") => {
+            let msg = template && template.trim() ? template : defaultTemplate;
+            const resultBlock = report.result ? `\n📝 *Result Summary:*\n${report.result}\n` : "";
+            
+            msg = msg
+                .replace(/\{ownerName\}/g, ownerFullName)
+                .replace(/\{petName\}/g, petName)
+                .replace(/\{testTitle\}/g, report.title)
+                .replace(/\{category\}/g, categoryFormatted)
+                .replace(/\{reportDate\}/g, reportDate)
+                .replace(/\{status\}/g, statusFormatted)
+                .replace(/\{resultSummary\}/g, resultBlock)
+                .replace(/\{reportUrl\}/g, shortUrl)
+                .replace(/\{clinicName\}/g, clinicName);
+
+            if (shortUrl && (!template || !template.includes("{reportUrl}"))) {
+                msg += `\n🔗 *View Full Report:* ${shortUrl}\n`;
+            }
+            return msg;
+        };
+
+        const mode = clinicSettings?.whatsappMode || "direct";
+        const countryCode = clinicSettings?.whatsappCountryCode || "91";
+
+        if (mode === "ultramsg" || mode === "evolution" || mode === "direct") {
+            if (onWhatsAppPdfRequest) onWhatsAppPdfRequest(report.id);
+            toast({
+                title: "Generating PDF...",
+                description: `Preparing WhatsApp document for ${owner.firstName}...`,
+            });
+
+            setTimeout(async () => {
+                try {
+                    const base64Pdf = await generatePDFFromElement("printable-lab-report-container");
+                    
+                    const cleanPhone = owner.phone ? owner.phone.replace(/\D/g, '') : '';
+                    const pdfFileName = cleanPhone ? `${cleanPhone}.pdf` : `Report_${Date.now()}.pdf`;
+
+                    if (mode === "ultramsg" || mode === "evolution") {
+                        const message = formatMessage("");
+                        const res = await fetch("/api/whatsapp/send", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                phone: owner.phone,
+                                message: message,
+                                document: base64Pdf,
+                                filename: pdfFileName
+                            })
+                        });
+                        
+                        const data: any = await res.json().catch(() => ({}));
+                        if (!res.ok || data.error) {
+                            throw new Error(data.error || data.message || "Failed to send WhatsApp document");
+                        }
+                        
+                        toast({
+                            title: "WhatsApp Sent",
+                            description: `Lab report sent to ${owner.firstName} via WhatsApp.`,
+                        });
+                    } else {
+                        // Direct mode: Upload PDF to get a secure unguessable public short link
+                        const res = await fetch("/api/upload/base64-pdf", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                base64: base64Pdf,
+                                filename: pdfFileName,
+                                ownerPhone: owner.phone,
+                                petName: pet?.name,
+                                reportTitle: report.title
+                            })
+                        });
+                        
+                        if (!res.ok) throw new Error("Failed to generate PDF sharing link");
+                        const data = await res.json();
+                        
+                        // Short unguessable secure report link: e.g. https://clinic.com/r/a7e93f2c
+                        const reportPath = data.url || (data.token ? `/r/${data.token}` : `/r/${pdfFileName}`);
+                        const fullUrl = `${window.location.origin}${reportPath}`;
+                        const finalMessage = formatMessage(fullUrl);
+                        
+                        toast({
+                            title: "Opening WhatsApp",
+                            description: `Preparing WhatsApp chat for ${owner.firstName}...`,
+                        });
+                        
+                        openWhatsAppLink(owner.phone, finalMessage, countryCode);
+                    }
+                } catch (err: any) {
+                    toast({
+                        title: "WhatsApp Share Failed",
+                        description: err.message || "Could not send the PDF document.",
+                        variant: "destructive"
+                    });
+                } finally {
+                    if (onWhatsAppPdfClear) onWhatsAppPdfClear();
+                }
+            }, 800);
+            return;
+        }
+    };
+
+    const deleteMutation = useMutation({
+        mutationFn: async (id: number) => {
+            await apiRequest("DELETE", `/api/lab-reports/${id}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/lab-reports"] });
+            toast({ title: "Lab order deleted", description: "The lab order has been removed." });
+        },
+        onError: (err: Error) => {
+            toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+        },
+    });
+
+    useEffect(() => {
+        setDisplayCount(24);
+    }, [search, statusFilter]);
 
     if (isLoading) {
         return (
@@ -636,7 +1180,7 @@ function LabReportsList({
                 </div>
 
                 <div className="grid gap-4">
-                    {reports.map((report) => {
+                    {reports.slice(0, displayCount).map((report) => {
                         const pet = pets.find(p => p.id === report.petId);
                         const isPending = report.status === "pending";
 
@@ -660,35 +1204,69 @@ function LabReportsList({
                                                 <div className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap mt-0.5">
                                                     <span className="font-medium text-foreground">{pet?.name}</span>
                                                     <span>•</span>
-                                                    <span>{report.category}</span>
+                                                    <span>{formatCategory(report.category)}</span>
                                                     <span>•</span>
-                                                    <span>{format(new Date(report.date), "MMM d, yyyy")} {report.createdAt && `at ${new Date(report.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" })}`}</span>
+                                                    <span>{formatLocalTimestamp(report.createdAt || report.date)}</span>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className="flex items-center gap-3 w-full sm:w-auto mt-2 sm:mt-0">
                                             {isPending ? (
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="gap-2 border-amber-200 hover:bg-amber-50 hover:text-amber-700 w-full sm:w-auto"
-                                                    onClick={() => setSelectedReport(report)}
-                                                >
-                                                    <Clock className="w-4 h-4" />
-                                                    Enter Results
-                                                </Button>
+                                                <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="gap-2 border-amber-200 hover:bg-amber-50 hover:text-amber-700 w-full sm:w-auto"
+                                                        onClick={() => setSelectedReport(report)}
+                                                    >
+                                                        <Clock className="w-4 h-4" />
+                                                        Enter Results
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        className="gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white font-medium shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                        onClick={(e) => handleWhatsAppShare(report, e)}
+                                                        title="Share Lab Order on WhatsApp"
+                                                    >
+                                                        <FaWhatsapp className="w-4 h-4 text-white" />
+                                                        WhatsApp
+                                                    </Button>
+                                                </div>
                                             ) : (
-                                                <div className="flex gap-2 w-full sm:w-auto">
-                                                    <Button size="sm" variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={() => onPrint ? onPrint(report.id) : window.open(`/api/lab-reports/${report.id}/print`, '_blank')}>
+                                                <div className="flex gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+                                                    <Button size="sm" variant="outline" className="gap-1.5 flex-1 sm:flex-none" onClick={() => onPrint ? onPrint(report.id) : window.open(`/api/lab-reports/${report.id}/print`, '_blank')}>
                                                         <Printer className="w-4 h-4" />
                                                         Print
                                                     </Button>
-                                                    <Button size="sm" variant="secondary" className="gap-2 flex-1 sm:flex-none" onClick={() => setSelectedReport(report)}>
+                                                    <Button
+                                                        size="sm"
+                                                        className="gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white font-medium shadow-sm flex-1 sm:flex-none transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                                        onClick={(e) => handleWhatsAppShare(report, e)}
+                                                        title="Share Lab Report on WhatsApp"
+                                                    >
+                                                        <FaWhatsapp className="w-4 h-4 text-white" />
+                                                        WhatsApp
+                                                    </Button>
+                                                    <Button size="sm" variant="secondary" className="gap-1.5 flex-1 sm:flex-none" onClick={() => setSelectedReport(report)}>
                                                         <FileText className="w-4 h-4" />
                                                         View / Edit
                                                     </Button>
                                                 </div>
+                                            )}
+                                            {canDelete && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive px-2"
+                                                    onClick={() => setDeleteConfirmId(report.id)}
+                                                    disabled={deleteMutation.isPending && deleteMutation.variables === report.id}
+                                                    title="Delete lab order"
+                                                >
+                                                    {deleteMutation.isPending && deleteMutation.variables === report.id
+                                                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                                                        : <Trash2 className="w-4 h-4" />}
+                                                </Button>
                                             )}
                                         </div>
                                     </div>
@@ -697,6 +1275,13 @@ function LabReportsList({
                         );
                     })}
                 </div>
+                {reports.length > displayCount && (
+                    <div className="flex justify-center mt-4">
+                        <Button variant="outline" onClick={() => setDisplayCount(c => c + 24)}>
+                            Load More Reports
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {
@@ -706,20 +1291,69 @@ function LabReportsList({
                         open={!!selectedReport}
                         onOpenChange={(open) => !open && setSelectedReport(null)}
                         onPrint={onPrint}
+                        onWhatsAppShare={() => handleWhatsAppShare(selectedReport)}
                     />
                 )
             }
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Lab Order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete this lab order and all associated results. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => {
+                                if (deleteConfirmId !== null) {
+                                    deleteMutation.mutate(deleteConfirmId);
+                                    setDeleteConfirmId(null);
+                                }
+                            }}
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }
 
-function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: LabReport, open: boolean, onOpenChange: (open: boolean) => void, onPrint?: (id: number) => void }) {
+function EnterResultsDialog({ report, open, onOpenChange, onPrint, onWhatsAppShare }: { report: LabReport, open: boolean, onOpenChange: (open: boolean) => void, onPrint?: (id: number) => void, onWhatsAppShare?: () => void }) {
     const { toast } = useToast();
     const [results, setResults] = useState<Record<string, any>>((report.details as Record<string, any>) || {});
     const [summary, setSummary] = useState(report.result === "Completed" ? "" : (report.result || ""));
     const [notes, setNotes] = useState(report.notes || "");
     const [isScanning, setIsScanning] = useState(false);
     const [isReceiving, setIsReceiving] = useState(false);
+
+    // Fetch pet info to get species for blood smear test
+    const { data: pet } = useQuery({ queryKey: [`/api/pets/${report.petId}`], enabled: !!report.petId && open });
+
+    // Initial parsing for what test sub-forms to show
+    const initialReportTitle = report.title?.toLowerCase() || "";
+    const isSmear = initialReportTitle.includes("smear");
+    const isWet = initialReportTitle.includes("wet");
+    const isComprehensive = initialReportTitle.includes("comprehensive") || initialReportTitle.includes("panel") || (!isSmear && !isWet && !initialReportTitle.includes("cbc"));
+    const isCBC = initialReportTitle.includes("cbc") || isComprehensive;
+
+    // Add existing values into account, just in case user resumes editing
+    const d = (report.details || {}) as any;
+    const hasCbcData = d.wbc || d.rbc || d.hb || d.pcv || d.platelet || d.mcv || d.mch || d.mchc || d.neutrophils || d.lymphocytes || d.monocytes || d.eosinophils || d.basophils;
+    const hasSmearData = !!d.bloodSmear;
+    const hasWetData = !!d.wetFilm;
+
+    const [selectedTests, setSelectedTests] = useState({
+        cbc: isCBC || !!hasCbcData,
+        bloodSmear: isSmear || isComprehensive || hasSmearData,
+        wetFilm: isWet || isComprehensive || hasWetData
+    });
 
     const mutation = useMutation({
         mutationFn: async () => {
@@ -731,7 +1365,11 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
             });
             return res.json();
         },
-        onSuccess: () => {
+        onSuccess: (updatedReport) => {
+            queryClient.setQueryData(["/api/lab-reports"], (oldData: LabReport[] | undefined) => {
+                if (!oldData) return oldData;
+                return oldData.map(r => r.id === updatedReport.id ? updatedReport : r);
+            });
             queryClient.invalidateQueries({ queryKey: ["/api/lab-reports"] });
             toast({ title: "Results Saved", description: "The lab report has been updated." });
             onOpenChange(false);
@@ -860,6 +1498,7 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
             const processedFile = new File([processedBlob], file.name, { type: 'image/png' });
 
             // Do NOT use character whitelist — it strips parameter names
+            const Tesseract = (await import("tesseract.js")).default;
             const result = await Tesseract.recognize(processedFile, 'eng', {
                 logger: m => console.log(m)
             });
@@ -936,6 +1575,8 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
     };
 
     const isBloodTest = report.category === "Hematology" || report.category === "Hematology & Blood Chemistry" || report.category === "Blood Chemistry" || report.category === "Biochemistry";
+    const isReproductive = report.category === "Reproductive";
+    const isUltrasonography = report.category === "Ultrasonography" || report.category === "Imaging";
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1010,19 +1651,71 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
                 <div className="space-y-6 mt-4">
                     {(report.category === "Hematology" || report.category === "Hematology & Blood Chemistry") && (
                         <div className="border p-4 rounded-md space-y-4">
-                            <h4 className="font-semibold text-sm uppercase mb-3">Hematology (CBC) Details</h4>
-                            <div className="grid grid-cols-3 gap-3 text-sm">
-                                {["wbc", "rbc", "hb", "pcv", "mcv", "mch", "mchc", "platelet", "neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils"].map(field => (
-                                    <div key={field} className="space-y-1">
-                                        <Label className="text-xs uppercase">{field}</Label>
-                                        <Input
-                                            className="h-8 text-sm"
-                                            value={results[field] || ""}
-                                            onChange={(e) => setResults(prev => ({ ...prev, [field]: e.target.value }))}
-                                        />
-                                    </div>
-                                ))}
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2 pb-2 border-b">
+                                <h4 className="font-semibold text-sm uppercase">Select Tests to Result</h4>
+                                <div className="flex flex-wrap items-center gap-4">
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox checked={selectedTests.cbc} onCheckedChange={(checked) => setSelectedTests(prev => ({ ...prev, cbc: !!checked }))} />
+                                        CBC Panel
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox checked={selectedTests.bloodSmear} onCheckedChange={(checked) => setSelectedTests(prev => ({ ...prev, bloodSmear: !!checked }))} />
+                                        Blood Smear
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                                        <Checkbox checked={selectedTests.wetFilm} onCheckedChange={(checked) => setSelectedTests(prev => ({ ...prev, wetFilm: !!checked }))} />
+                                        Wet Film
+                                    </label>
+                                </div>
                             </div>
+
+                            {!selectedTests.cbc && !selectedTests.bloodSmear && !selectedTests.wetFilm && (
+                                <div className="text-sm text-muted-foreground italic text-center py-4">
+                                    Select at least one test above to enter results.
+                                </div>
+                            )}
+
+                            {selectedTests.cbc && (
+                                <div className="space-y-3">
+                                    <h4 className="font-semibold text-sm uppercase text-muted-foreground">CBC PANEL</h4>
+                                    <div className="grid grid-cols-3 gap-3 text-sm">
+                                        {["wbc", "rbc", "hb", "pcv", "mcv", "mch", "mchc", "platelet", "neutrophils", "lymphocytes", "monocytes", "eosinophils", "basophils"].map(field => (
+                                            <div key={field} className="space-y-1">
+                                                <Label className="text-xs uppercase">{field}</Label>
+                                                <Input
+                                                    className="h-8 text-sm"
+                                                    value={results[field] || ""}
+                                                    onChange={(e) => setResults(prev => ({ ...prev, [field]: e.target.value }))}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {(selectedTests.bloodSmear || selectedTests.wetFilm) && (
+                                <div className={`grid ${selectedTests.bloodSmear && selectedTests.wetFilm ? 'grid-cols-2' : 'grid-cols-1'} gap-4 text-sm mt-4 pt-4 ${selectedTests.cbc ? 'border-t border-muted' : ''}`}>
+                                    {selectedTests.bloodSmear && (
+                                        <div className="space-y-1">
+                                            <Label className="text-xs uppercase">Blood Smear Test</Label>
+                                            <BloodSmearBuilder
+                                                value={results.bloodSmear || ""}
+                                                onChange={(val) => setResults(prev => ({ ...prev, bloodSmear: val }))}
+                                                petSpecies={(pet as any)?.species}
+                                            />
+                                        </div>
+                                    )}
+                                    {selectedTests.wetFilm && (
+                                        <div className="space-y-1">
+                                            <Label className="text-xs uppercase">Wet Film Test</Label>
+                                            <WetFilmBuilder
+                                                value={results.wetFilm || ""}
+                                                onChange={(val) => setResults(prev => ({ ...prev, wetFilm: val }))}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1030,9 +1723,9 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
                         <div className="border p-4 rounded-md space-y-4">
                             <h4 className="font-semibold text-sm uppercase mb-3">Blood Chemistry Details</h4>
                             <div className="grid grid-cols-3 gap-3 text-sm">
-                                {["glucose", "urea", "creatinine", "alt", "ast", "alp", "totalProtein", "albumin", "globulin", "totalBilirubin", "sodium", "potassium", "chloride", "calcium", "phosphorus"].map(field => (
+                                {["ast", "alt", "alp", "ggt", "totalBilirubin", "totalProtein", "albumin", "globulin", "cholesterol", "triglyceride", "creatinine", "urea", "amylase", "lipase", "ck", "calcium", "phosphorus", "magnesium", "sodium", "potassium", "chloride", "glucose"].map(field => (
                                     <div key={field} className="space-y-1">
-                                        <Label className="text-xs uppercase">{field}</Label>
+                                        <Label className="text-xs uppercase">{field.replace(/([A-Z])/g, ' $1').trim()}</Label>
                                         <Input
                                             className="h-8 text-sm"
                                             value={results[field] || ""}
@@ -1049,21 +1742,28 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
                             <h4 className="font-semibold text-sm uppercase mb-3">Biochemistry Details</h4>
                             <div className="grid grid-cols-3 gap-3 text-sm">
                                 {[
-                                    { key: "bio_glucose", label: "Glucose" },
-                                    { key: "bio_urea", label: "Urea (BUN)" },
-                                    { key: "bio_creatinine", label: "Creatinine" },
-                                    { key: "bio_alt", label: "ALT (SGPT)" },
                                     { key: "bio_ast", label: "AST (SGOT)" },
+                                    { key: "bio_alt", label: "ALT (SGPT)" },
                                     { key: "bio_alp", label: "ALP" },
+                                    { key: "bio_ggt", label: "GGT" },
+                                    { key: "bio_totalBilirubin", label: "Total Bilirubin" },
                                     { key: "bio_totalProtein", label: "Total Protein" },
                                     { key: "bio_albumin", label: "Albumin" },
                                     { key: "bio_globulin", label: "Globulin" },
-                                    { key: "bio_totalBilirubin", label: "Total Bilirubin" },
+                                    { key: "bio_cholesterol", label: "Cholesterol" },
+                                    { key: "bio_triglyceride", label: "Triglyceride" },
+                                    { key: "bio_creatinine", label: "Creatinine" },
+                                    { key: "bio_urea", label: "Urea (BUN)" },
+                                    { key: "bio_amylase", label: "Amylase" },
+                                    { key: "bio_lipase", label: "Lipase" },
+                                    { key: "bio_ck", label: "CK (CPK)" },
+                                    { key: "bio_calcium", label: "Calcium" },
+                                    { key: "bio_phosphorus", label: "Phosphorus" },
+                                    { key: "bio_magnesium", label: "Magnesium" },
                                     { key: "bio_sodium", label: "Sodium" },
                                     { key: "bio_potassium", label: "Potassium" },
                                     { key: "bio_chloride", label: "Chloride" },
-                                    { key: "bio_calcium", label: "Calcium" },
-                                    { key: "bio_phosphorus", label: "Phosphorus" },
+                                    { key: "bio_glucose", label: "Glucose" },
                                 ].map(({ key, label }) => (
                                     <div key={key} className="space-y-1">
                                         <Label className="text-xs">{label}</Label>
@@ -1078,7 +1778,69 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
                         </div>
                     )}
 
-                    {report.category !== "Hematology" && report.category !== "Hematology & Blood Chemistry" && report.category !== "Blood Chemistry" && report.category !== "Biochemistry" && (
+                    {isReproductive && (
+                        <div className="border p-4 rounded-md space-y-4">
+                            <VaginalCytologyBuilder
+                                value={results}
+                                onChange={(newVals) => setResults(prev => ({ ...prev, ...newVals }))}
+                                reportTitle={report.title}
+                            />
+                        </div>
+                    )}
+
+                    {isUltrasonography && (
+                        <div className="border p-4 rounded-md space-y-4">
+                            <div className="grid grid-cols-1 gap-3">
+                                {[
+                                    { key: "usg_urinaryBladder", label: "Urinary Bladder", placeholder: "UB moderately distended, wall thickness 1.09 mm. No luminal defects seen." },
+                                    { key: "usg_liver", label: "Liver", placeholder: "Hepatic Parenchyma is normal. Lobes shape and size normal. No SOL seen..." },
+                                    { key: "usg_spleen", label: "Spleen", placeholder: "Dense, homogenous, fine granular echotexture seen, margin is sharp and well defined..." },
+                                    { key: "usg_kidney", label: "Kidney", placeholder: "Both renal corticomedullary differentiation (CMD) clear, cortex isoechoic to liver..." },
+                                    { key: "usg_stomach", label: "Stomach", placeholder: "Dark and bright rugal folds seen. Lumen filled with gases and echogenic contents." },
+                                    { key: "usg_intestine", label: "Intestine", placeholder: "Intestinal loops are normal. Lumen filled with gases and echogenic contents." },
+                                    { key: "usg_ovaryUterus", label: "Ovary & Uterus", placeholder: "Ovaries seen reactive. Uterine horns seen reactive, horn diameter is 11.33mm..." },
+                                    { key: "usg_abdomen", label: "Abdomen", placeholder: "No free fluid seen." },
+                                    { key: "usg_pancreas", label: "Pancreas", placeholder: "Pancreatic limb echotexture seen normal. Pancreatic limb width seen normal." },
+                                    { key: "usg_adrenalGland", label: "Adrenal Gland", placeholder: "Adrenals seen normal." },
+                                ].map(({ key, label, placeholder }) => (
+                                    <div key={key} className="flex flex-col gap-1">
+                                        <Label className="text-xs font-semibold uppercase text-slate-600">{label} :-</Label>
+                                        <Textarea
+                                            className="min-h-[52px] text-sm resize-none"
+                                            placeholder={placeholder}
+                                            value={results[key] || ""}
+                                            onChange={(e) => setResults(prev => ({ ...prev, [key]: e.target.value }))}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {isUltrasonography && (
+                        <div className="border p-4 rounded-md space-y-3">
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-xs font-semibold uppercase text-slate-700">Impression :-</Label>
+                                <Textarea
+                                    className="min-h-[48px] text-sm resize-none"
+                                    placeholder="Splenomegaly, Calcified Uterine body & Endometritis. Reactive ovaries."
+                                    value={results.usg_impression || ""}
+                                    onChange={(e) => setResults(prev => ({ ...prev, usg_impression: e.target.value }))}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <Label className="text-xs font-semibold uppercase text-slate-700">Suggestion :-</Label>
+                                <Textarea
+                                    className="min-h-[48px] text-sm italic resize-none"
+                                    placeholder="To know the function of organs need to correlate with blood parameters findings."
+                                    value={results.usg_suggestion || ""}
+                                    onChange={(e) => setResults(prev => ({ ...prev, usg_suggestion: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {!isBloodTest && !isReproductive && !isUltrasonography && (
                         <div className="text-center p-8 bg-muted rounded-md space-y-4">
                             <p>Use the summary and notes fields below for {report.category} results.</p>
                         </div>
@@ -1107,13 +1869,26 @@ function EnterResultsDialog({ report, open, onOpenChange, onPrint }: { report: L
                     <div className="flex justify-end gap-3 pt-4 border-t mt-4">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
 
+                        {onWhatsAppShare && (
+                            <Button
+                                className="gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white font-medium shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                                onClick={() => onWhatsAppShare()}
+                                title="Share on WhatsApp"
+                            >
+                                <FaWhatsapp className="w-4 h-4 text-white" />
+                                WhatsApp
+                            </Button>
+                        )}
                         {onPrint && (
                             <Button
                                 variant="secondary"
                                 className="gap-2"
                                 onClick={() => {
-                                    mutation.mutate();
-                                    onPrint(report.id);
+                                    mutation.mutate(undefined, {
+                                        onSuccess: () => {
+                                            onPrint(report.id);
+                                        }
+                                    });
                                 }}
                                 disabled={mutation.isPending}
                             >

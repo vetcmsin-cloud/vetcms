@@ -8,63 +8,25 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      manifestFilename: 'manifest.webmanifest',
-      includeAssets: ['favicon.ico', 'favicon.png', 'robots.txt'],
-      manifest: {
-        name: 'PetPoint Pro - Veterinary Clinic Management',
-        short_name: 'PetPoint Pro',
-        description: 'Professional veterinary clinic management software',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
-        display: 'standalone',
-        orientation: 'portrait-primary',
-        start_url: '/',
-        scope: '/',
-        id: '/',
-        icons: [
-          {
-            src: '/favicon.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: '/favicon.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: '/favicon.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: '/favicon.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
-          }
-        ]
-      },
+      registerType: "autoUpdate",
       workbox: {
-        navigateFallback: '/index.html',
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}']
-      }
+        // Pre-cache all JS/CSS assets so the app shell loads from disk, not network
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Don't pre-cache large Excel/debug files
+        globIgnores: ["**/xlsx/**", "**/*.map"],
+        // Cache API responses for clinic settings (rarely changes)
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\/clinic-settings$/,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "clinic-settings-cache",
+              expiration: { maxAgeSeconds: 5 * 60 }, // 5 minutes
+            },
+          },
+        ],
+      },
     }),
-    // runtimeErrorOverlay(),
-    /* ...(process.env.NODE_ENV !== "production" &&
-      process.env.REPL_ID !== undefined
-      ? [
-        await import("@replit/vite-plugin-cartographer").then((m) =>
-          m.cartographer(),
-        ),
-        await import("@replit/vite-plugin-dev-banner").then((m) =>
-          m.devBanner(),
-        ),
-      ]
-      : []), */
   ],
   resolve: {
     alias: {
@@ -77,11 +39,32 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Split vendor chunks so browsers can cache them independently
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-query": ["@tanstack/react-query"],
+          "vendor-ui": [
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-tabs",
+            "@radix-ui/react-select",
+            "@radix-ui/react-popover",
+            "@radix-ui/react-toast",
+          ],
+          "vendor-charts": ["recharts"],
+          "vendor-forms": ["react-hook-form", "@hookform/resolvers", "zod"],
+          "vendor-date": ["date-fns"],
+        },
+      },
+    },
   },
   server: {
     fs: {
       strict: true,
       deny: ["**/.*"],
+      allow: [".."],
     },
   },
 });

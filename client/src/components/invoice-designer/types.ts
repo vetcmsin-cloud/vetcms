@@ -8,16 +8,17 @@ export type InvoiceFieldKey =
     | "customerName"
     | "customerAddress"
     | "customerPhone"
-    | "customerEmail" // Added
+    | "customerEmail"
     | "total"
     | "subtotal"
     | "tax"
+    | "discount"
     | "doctorName"
     | "doctorPhone"
     | "billedBy"
     | "bankName"
     | "upiId"
-    | "upiPhone" // Added
+    | "upiPhone"
     | "clinicPhone"
     | "gstNumber"
     | "regNumber"
@@ -27,13 +28,13 @@ export type InvoiceFieldKey =
     | "patientAge"
     | "patientSpecies"
     | "patientBreed"
-    | "serialNumber" // Auto-increment or custom?
+    | "serialNumber"
     | "terms"
     | "qrCode"
     | "description" // Product Name
-    | "unitPrice" // Price
-    | "quantity" // Qty
-    | "lineTotal"; // Subtotal
+    | "unitPrice"   // Price
+    | "quantity"    // Qty
+    | "lineTotal";  // Subtotal
 
 export interface InvoiceSection {
     id: string;
@@ -50,4 +51,5 @@ export interface InvoiceSection {
     height?: number;
     // For single fields
     field?: InvoiceFieldKey;
+    printSection?: "header" | "body" | "footer";
 }

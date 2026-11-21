@@ -17,7 +17,7 @@ import {
     ZoomIn, ZoomOut, Move,
     Calendar, User, Hash, IndianRupee,
     CreditCard, Building2, Phone, Mail,
-    FileText, QrCode, Download, Upload
+    FileText, QrCode, Download, Upload, Minus, Copy
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -114,6 +114,8 @@ export interface InvoiceDesignerProps {
     onLayoutChange?: (layout: InvoiceSection[]) => void;
     onSave?: (layout: InvoiceSection[]) => void;
     settings: Record<string, string>;
+    designerType?: string;
+    printDesign?: "print1" | "print2" | "print3";
 }
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -127,11 +129,13 @@ export interface InvoiceDesignerProps {
     onSettingsChange?: (settings: Record<string, string>) => void;
     settings: Record<string, string>;
     canvasPaperSize?: "a4" | "a5_portrait" | "a5_landscape";
+    designerType?: string;
+    printDesign?: "print1" | "print2" | "print3";
 }
 
 const generateId = (type: SectionType) => `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLayoutChange, onSave, onSettingsChange, settings, canvasPaperSize }: InvoiceDesignerProps) {
+export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLayoutChange, onSave, onSettingsChange, settings, canvasPaperSize, designerType, printDesign }: InvoiceDesignerProps) {
     const { toast } = useToast();
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -258,6 +262,20 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
     const removeSection = (id: string) => {
         setLayout(layout.filter(s => s.id !== id));
         if (selectedId === id) setSelectedId(null);
+    };
+
+    const duplicateSection = (id: string) => {
+        const source = layout.find(s => s.id === id);
+        if (!source) return;
+        const clone: InvoiceSection = {
+            ...source,
+            id: generateId(source.type),
+            x: (source.x ?? 0) + 20,
+            y: (source.y ?? 0) + 20,
+        };
+        setLayout([...layout, clone]);
+        setSelectedId(clone.id);
+        toast({ title: "Field Duplicated", description: `Copied "${clone.label}" to canvas.` });
     };
 
     const selectedSection = layout.find(s => s.id === selectedId);
@@ -434,6 +452,26 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
             );
         }
 
+        if (section.type === "spacer") {
+            return (
+                <div 
+                    className="w-full flex items-center" 
+                    style={{ 
+                        height: section.styles?.height ? `${section.styles.height}px` : '20px'
+                    }}
+                >
+                    <div 
+                        className="w-full"
+                        style={{
+                            borderTopWidth: section.styles?.borderTopWidth || '2px',
+                            borderTopColor: section.styles?.borderTopColor || '#d1d5db',
+                            borderTopStyle: (section.styles?.borderTopStyle as any) || 'dashed',
+                        }}
+                    />
+                </div>
+            );
+        }
+
         return <div className="text-xs text-red-500">Unknown</div>;
     };
 
@@ -582,6 +620,9 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
                                 <Button variant="secondary" size="sm" className="w-full justify-start" onClick={() => addSection("totals")}>
                                     <IndianRupee className="w-4 h-4 mr-2" /> Totals Block
                                 </Button>
+                                <Button variant="secondary" size="sm" className="w-full justify-start" onClick={() => addSection("spacer")}>
+                                    <Minus className="w-4 h-4 mr-2" /> Separator Line
+                                </Button>
                             </div>
                         </TabsContent>
                         <TabsContent value="edit" className="space-y-4 mt-4">
@@ -591,9 +632,91 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
                                         <Label>Label (Internal)</Label>
                                         <Input value={selectedSection.label} onChange={(e) => updateSection(selectedSection.id, { label: e.target.value })} />
                                     </div>
-                                    <div className="space-y-1">
-                                        <Label>Width (px)</Label>
-                                        <Input type="number" value={selectedSection.width || ""} onChange={(e) => updateSection(selectedSection.id, { width: parseInt(e.target.value) || 0 })} />
+                                    <Separator />
+                                    <div className="space-y-2">
+                                        <Label className="text-xs uppercase text-muted-foreground">Layout & Spacing</Label>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">X</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={Math.round(selectedSection.x || 0)} 
+                                                    onChange={(e) => updateSection(selectedSection.id, { x: parseInt(e.target.value) || 0 })} 
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Y</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={Math.round(selectedSection.y || 0)} 
+                                                    onChange={(e) => updateSection(selectedSection.id, { y: parseInt(e.target.value) || 0 })} 
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Width</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.width || ""} 
+                                                    onChange={(e) => updateSection(selectedSection.id, { width: parseInt(e.target.value) || 0 })} 
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Height</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.height || ""} 
+                                                    onChange={(e) => updateSection(selectedSection.id, { height: parseInt(e.target.value) || 0 })} 
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Pad T</Label>
+                                                <Input
+                                                    type="number"
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.styles?.paddingTop?.replace('px', '') || ""}
+                                                    onChange={(e) => updateSection(selectedSection.id, {
+                                                        styles: { ...selectedSection.styles, paddingTop: e.target.value ? `${e.target.value}px` : "" }
+                                                    })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Pad B</Label>
+                                                <Input
+                                                    type="number"
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.styles?.paddingBottom?.replace('px', '') || ""}
+                                                    onChange={(e) => updateSection(selectedSection.id, {
+                                                        styles: { ...selectedSection.styles, paddingBottom: e.target.value ? `${e.target.value}px` : "" }
+                                                    })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Pad L</Label>
+                                                <Input
+                                                    type="number"
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.styles?.paddingLeft?.replace('px', '') || ""}
+                                                    onChange={(e) => updateSection(selectedSection.id, {
+                                                        styles: { ...selectedSection.styles, paddingLeft: e.target.value ? `${e.target.value}px` : "" }
+                                                    })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1 text-center">
+                                                <Label className="text-[10px]">Pad R</Label>
+                                                <Input
+                                                    type="number"
+                                                    className="h-7 px-1 text-center text-xs"
+                                                    value={selectedSection.styles?.paddingRight?.replace('px', '') || ""}
+                                                    onChange={(e) => updateSection(selectedSection.id, {
+                                                        styles: { ...selectedSection.styles, paddingRight: e.target.value ? `${e.target.value}px` : "" }
+                                                    })}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
 
                                     {selectedSection.type === "text" && (
@@ -602,54 +725,147 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
                                             <Textarea
                                                 value={selectedSection.content || ""}
                                                 onChange={(e) => updateSection(selectedSection.id, { content: e.target.value })}
-                                                className="min-h-[100px]"
+                                                className="min-h-[80px]"
                                             />
                                         </div>
                                     )}
 
-                                    {/* Grid Overlay */}
-                                    {showGrid && (
-                                        <div
-                                            className="absolute inset-0 pointer-events-none z-0"
-                                            style={{
-                                                backgroundImage: `linear-gradient(#e5e7eb 1px, transparent 1px), linear-gradient(90deg, #e5e7eb 1px, transparent 1px)`,
-                                                backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`
-                                            }}
-                                        />
+                                    <div className="space-y-2">
+                                        <Label className="text-xs uppercase text-muted-foreground">Typography</Label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px]">Font Size (px)</Label>
+                                                <Input
+                                                    type="number"
+                                                    className="h-8"
+                                                    value={selectedSection.styles?.fontSize?.replace('px', '') || ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        updateSection(selectedSection.id, {
+                                                            styles: { ...selectedSection.styles, fontSize: val ? `${val}px` : "" }
+                                                        });
+                                                    }}
+                                                    placeholder="Inherit"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px]">Font Weight</Label>
+                                                <Input
+                                                    className="h-8"
+                                                    value={selectedSection.styles?.fontWeight || ""}
+                                                    onChange={(e) => updateSection(selectedSection.id, { styles: { ...selectedSection.styles, fontWeight: e.target.value } })}
+                                                    placeholder="bold, 500, etc"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {selectedSection.type === "spacer" && (
+                                        <>
+                                            <div className="space-y-1 pt-2">
+                                                <Label>Line Thickness (px)</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={selectedSection.styles?.borderTopWidth?.replace('px', '') || "2"}
+                                                    onChange={(e) => updateSection(selectedSection.id, { 
+                                                        styles: { ...selectedSection.styles, borderTopWidth: `${e.target.value}px` } 
+                                                    })}
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label>Line Colour</Label>
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        type="color"
+                                                        className="w-12 h-8 p-1"
+                                                        value={selectedSection.styles?.borderTopColor || "#d1d5db"}
+                                                        onChange={(e) => updateSection(selectedSection.id, { 
+                                                            styles: { ...selectedSection.styles, borderTopColor: e.target.value } 
+                                                        })}
+                                                    />
+                                                    <Input
+                                                        className="flex-1 h-8"
+                                                        value={selectedSection.styles?.borderTopColor || "#d1d5db"}
+                                                        onChange={(e) => updateSection(selectedSection.id, { 
+                                                            styles: { ...selectedSection.styles, borderTopColor: e.target.value } 
+                                                        })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label>Line Style</Label>
+                                                <select
+                                                    className="w-full h-8 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+                                                    value={selectedSection.styles?.borderTopStyle || "dashed"}
+                                                    onChange={(e) => updateSection(selectedSection.id, { 
+                                                        styles: { ...selectedSection.styles, borderTopStyle: e.target.value } 
+                                                    })}
+                                                >
+                                                    <option value="solid">Solid</option>
+                                                    <option value="dashed">Dashed</option>
+                                                    <option value="dotted">Dotted</option>
+                                                    <option value="double">Double</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label>Line Adjustment (Vertical Space)</Label>
+                                                <div className="flex items-center gap-4">
+                                                    <Slider
+                                                        value={[parseInt(selectedSection.styles?.height || "20")]}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        onValueChange={([val]) => updateSection(selectedSection.id, { 
+                                                            styles: { ...selectedSection.styles, height: `${val}` } 
+                                                        })}
+                                                    />
+                                                    <span className="text-xs w-8">{selectedSection.styles?.height || "20"}px</span>
+                                                </div>
+                                            </div>
+                                        </>
                                     )}
 
-                                    {/* Style Fields */}
-                                    <div className="space-y-1">
-                                        <Label>Font Size (px)</Label>
-                                        <Input
-                                            type="number"
-                                            value={selectedSection.styles?.fontSize?.replace('px', '') || ""}
-                                            onChange={(e) => {
-                                                const val = e.target.value;
-                                                updateSection(selectedSection.id, {
-                                                    styles: { ...selectedSection.styles, fontSize: val ? `${val}px` : undefined }
-                                                });
-                                            }}
-                                            placeholder="Inherit"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label>Font Weight</Label>
-                                        <Input
-                                            value={selectedSection.styles?.fontWeight || ""}
-                                            onChange={(e) => updateSection(selectedSection.id, { styles: { ...selectedSection.styles, fontWeight: e.target.value } })}
-                                            placeholder="bold, 500, etc"
-                                        />
-                                    </div>
 
+                                    <Separator />
+
+                                    {/* Print Position */}
+                                    <div className="space-y-2">
+                                        <Label className="text-xs uppercase text-muted-foreground">Print Position</Label>
+                                        <p className="text-[10px] text-muted-foreground leading-snug">
+                                            <span className="font-medium text-foreground">Header</span> &amp; <span className="font-medium text-foreground">Body</span> appear on every page.&nbsp;
+                                            <span className="font-medium text-foreground">Footer</span> appears only on the last page.
+                                        </p>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {(["header", "body", "footer"] as const).map((pos) => (
+                                                <button
+                                                    key={pos}
+                                                    type="button"
+                                                    onClick={() => updateSection(selectedSection.id, { printSection: pos })}
+                                                    className={cn(
+                                                        "h-8 rounded-md border text-xs font-medium transition-colors capitalize",
+                                                        (selectedSection.printSection ?? "body") === pos
+                                                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                                            : "bg-background text-muted-foreground border-input hover:bg-muted hover:text-foreground"
+                                                    )}
+                                                >
+                                                    {pos.charAt(0).toUpperCase() + pos.slice(1)}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
 
                                     <div className="flex items-center justify-between pt-2">
                                         <Label>Visible</Label>
                                         <Switch checked={selectedSection.isVisible} onCheckedChange={(c) => updateSection(selectedSection.id, { isVisible: c })} />
                                     </div>
-                                    <Button variant="destructive" size="sm" className="w-full mt-4" onClick={() => removeSection(selectedSection.id)}>
-                                        <Trash2 className="w-4 h-4 mr-2" /> Remove
-                                    </Button>
+                                    <div className="flex gap-2 mt-4">
+                                        <Button variant="outline" size="sm" className="flex-1" onClick={() => duplicateSection(selectedSection.id)}>
+                                            <Copy className="w-4 h-4 mr-2" /> Duplicate
+                                        </Button>
+                                        <Button variant="destructive" size="sm" className="flex-1" onClick={() => removeSection(selectedSection.id)}>
+                                            <Trash2 className="w-4 h-4 mr-2" /> Remove
+                                        </Button>
+                                    </div>
                                 </div>
                             ) : (
                                 <p className="text-sm text-muted-foreground">Select an element to edit</p>
@@ -710,6 +926,10 @@ export function InvoiceDesigner({ initialLayout, layout: controlledLayout, onLay
                                         fontSize: section.styles?.fontSize,
                                         fontWeight: section.styles?.fontWeight,
                                         color: section.styles?.color,
+                                        paddingTop: section.styles?.paddingTop,
+                                        paddingBottom: section.styles?.paddingBottom,
+                                        paddingLeft: section.styles?.paddingLeft,
+                                        paddingRight: section.styles?.paddingRight,
                                     }}
                                 >
                                     {mode === "edit" ? renderDesignerContent(section) : <InvoiceRenderer settings={settings} invoice={PREVIEW_DATA} layout={[section]} className="bg-transparent shadow-none border-none p-0 !min-h-0" />}

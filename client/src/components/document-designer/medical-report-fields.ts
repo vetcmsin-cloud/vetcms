@@ -49,7 +49,7 @@ const MEDICAL_PREVIEW: Record<string, string> = {
     patientName: "Bruno",
     ownerName: "Rahul Sharma",
     ownerPhone: "+91 98765 43210",
-    species: "Dog",
+    species: "Canine",
     breed: "Labrador",
     age: "4 years",
     weight: "32.5 kg",

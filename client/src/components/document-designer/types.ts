@@ -1,5 +1,5 @@
 
-export type DocumentSectionType = "field" | "text" | "image" | "table" | "spacer" | "panel";
+export type DocumentSectionType = "field" | "text" | "image" | "table" | "spacer" | "panel" | "usg" | "rect_sharp" | "rect_round";
 
 export interface DocumentField {
     key: string;
@@ -21,7 +21,7 @@ export interface PanelDefinition {
     key: string;
     label: string;
     icon: any;
-    panelType?: "test" | "info";  // "test" = 4-col table, "info" = label:value pairs
+    panelType?: "test" | "info" | "blood_smear" | "wet_film" | "evc" | "progesterone" | "cycle_timeline" | "usg" | "usg_impression" | "usg_suggestion";  // "test" = 4-col table, "info" = label:value pairs, "blood_smear" = pathogen/count, "wet_film" = microfilaria/count, "evc" = vaginal cytology, "progesterone" = progesterone assay, "cycle_timeline" = reproductive cycle timeline, "usg" = ultrasonography findings, "usg_impression" = impression text block, "usg_suggestion" = suggestion text block
     rows: PanelRow[];
     defaultWidth?: number;
     defaultHeight?: number;
@@ -39,8 +39,11 @@ export interface DocumentSection {
     y?: number;
     width?: number;
     height?: number;
+    marginTop?: number;  // extra top spacing before this body flow item (px)
+    lockSize?: boolean;
     field?: string;
     panelKey?: string;
+    position?: "header" | "body" | "footer" | "category";
 }
 
 export interface DocumentDesignerConfig {

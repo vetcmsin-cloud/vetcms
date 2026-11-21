@@ -13,6 +13,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
     Dialog,
     DialogContent,
     DialogHeader,
@@ -51,8 +61,14 @@ import { insertLabReportSchema, LAB_REPORT_CATEGORIES, type LabReport, type Inse
 import { Loader2, Plus, Trash2, FileText, Download, Printer, FileImage, Eye, FolderOpen, Camera, Wifi } from "lucide-react";
 import { format } from "date-fns";
 import Tesseract from "tesseract.js";
+import { formatWhatsAppLink, openWhatsAppLink, formatLocalTimestamp } from "@/lib/utils";
+import { generatePDFFromElement } from "@/lib/pdf-generator";
+import { FaWhatsapp } from "react-icons/fa";
 import { LabReportRenderer } from "./document-designer/LabReportRenderer";
 import type { DocumentSection } from "./document-designer/types";
+import { VaginalCytologyBuilder } from "./vaginal-cytology-builder";
+import { BloodSmearBuilder } from "./blood-smear-builder";
+import { WetFilmBuilder } from "./wet-film-builder";
 
 interface LabReportsTabProps {
     petId: number;
@@ -64,8 +80,11 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
     const { toast } = useToast();
     const { hasPermission } = useAuth();
     const canCreateReport = hasPermission("medical_records.create");
+    const canDeleteReport = hasPermission("medical_records.delete", "admin_dashboard.view");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [printReportId, setPrintReportId] = useState<number | null>(null);
+    const [whatsappReportId, setWhatsappReportId] = useState<number | null>(null);
+    const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [isReceiving, setIsReceiving] = useState(false);
 
@@ -89,14 +108,21 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
     const getDynamicRefRange = (rowKey: string, rowLabel: string, defaultRange: string) => {
         if (!allLabTests || !allLabRefRanges || !pet?.species) return defaultRange;
 
-        // Strip off "bio_" prefix if matching keys
-        const cleanKey = rowKey.replace(/^bio_/, '');
+        const cleanKey = rowKey.replace(/^bio_/, '').toLowerCase().trim();
+        const cleanLabelPrefix = rowLabel.split('(')[0].toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 
-        const test = allLabTests.find(t =>
-            t.name.toLowerCase() === rowLabel.toLowerCase() ||
-            t.name.toLowerCase() === cleanKey.toLowerCase() ||
-            t.name.toLowerCase() === rowKey.toLowerCase()
-        );
+        const test = allLabTests.find(t => {
+            const tName = t.name.toLowerCase().trim();
+            const tClean = t.name.replace(/\s*\(.*?\)\s*/g, '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            return (
+                tName === rowLabel.toLowerCase().trim() ||
+                tName === cleanKey ||
+                tName === rowKey.toLowerCase().trim() ||
+                tName.startsWith(cleanKey) ||
+                tClean === cleanLabelPrefix ||
+                tName === rowLabel.toLowerCase().split(' ')[0]
+            );
+        });
 
         if (test) {
             const range = allLabRefRanges.find(r =>
@@ -105,7 +131,7 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
             );
 
             if (range) {
-                if (range.min && range.max) return `${range.min} – ${range.max}`;
+                if (range.min && range.max) return `${range.min} - ${range.max}`;
                 if (range.refText) return range.refText;
             }
         }
@@ -369,10 +395,11 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
         }
     };
 
-    // Handle Printing
+
+
     const reportToPrint = useMemo(() => {
-        return reports?.find(r => r.id === printReportId);
-    }, [reports, printReportId]);
+        return reports?.find(r => r.id === (printReportId || whatsappReportId));
+    }, [reports, printReportId, whatsappReportId]);
 
     const labReportLayout = useMemo(() => {
         if (!reportToPrint || !settings) return undefined;
@@ -397,11 +424,164 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
             }
         }
 
+        // Default layout for Reproductive reports so the Cycle Timeline panel always appears in-flow
+        if (reportToPrint.category === "Reproductive") {
+            return [
+                { id: "customer_details_default", type: "panel", isVisible: true, label: "Customer / Patient Details", panelKey: "customer_details", x: 40, y: 20, width: 714, height: 200 },
+                { id: "evc_panel_default", type: "panel", isVisible: true, label: "Vaginal Cytology (EVC)", panelKey: "evc_panel", x: 40, y: 240, width: 714, height: 320, position: "body" },
+                { id: "progesterone_panel_default", type: "panel", isVisible: true, label: "Progesterone Assay", panelKey: "progesterone_panel", x: 40, y: 580, width: 714, height: 250, position: "body" },
+                { id: "summary_default", type: "field", field: "summary", isVisible: true, label: "Summary / Conclusion", position: "body", x: 40, y: 840, width: 714, height: 120 },
+                { id: "cycle_timeline_panel_default", type: "panel", isVisible: true, label: "Cycle Timeline", panelKey: "cycle_timeline_panel", x: 40, y: 970, width: 714, height: 140, position: "body" },
+                { id: "notes_default", type: "field", field: "notes", isVisible: true, label: "Notes", position: "body", x: 40, y: 1120, width: 714, height: 80 },
+            ];
+        }
+
         return undefined;
     }, [reportToPrint, settings]);
 
     const handlePrint = (reportId: number) => {
         setPrintReportId(reportId);
+    };
+
+    const handleWhatsAppShare = (report: LabReport, e?: React.MouseEvent) => {
+        if (e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+
+        if (!owner || !owner.phone) {
+            toast({
+                title: "WhatsApp Share Failed",
+                description: "Owner phone number not found for this patient.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        const clinicName = settings?.clinicName || "PetPoint Pro Veterinary Clinic";
+        const reportDate = formatLocalTimestamp(report.createdAt || report.date);
+        const ownerFullName = `${owner.firstName} ${owner.lastName || ""}`.trim();
+        const petName = pet?.name || "Patient";
+        const categoryFormatted = report.category || "General";
+        const statusFormatted = report.status ? report.status.toUpperCase() : "COMPLETED";
+
+        const template = settings?.whatsappLabReportTemplate;
+        const defaultTemplate = `*Lab Report Notification*
+
+Dear {ownerName},
+Here is the lab report for your pet *{petName}*:
+
+🧪 Test: {testTitle}
+🏷️ Category: {category}
+📅 Date: {reportDate}
+📌 Status: {status}
+{resultSummary}
+🔗 View Full Report: {reportUrl}
+
+Thank you,
+{clinicName}`;
+
+        const formatMessage = (shortUrl: string = "") => {
+            let msg = template && template.trim() ? template : defaultTemplate;
+            const resultBlock = report.result ? `\n📝 *Result Summary:*\n${report.result}\n` : "";
+            
+            msg = msg
+                .replace(/\{ownerName\}/g, ownerFullName)
+                .replace(/\{petName\}/g, petName)
+                .replace(/\{testTitle\}/g, report.title)
+                .replace(/\{category\}/g, categoryFormatted)
+                .replace(/\{reportDate\}/g, reportDate)
+                .replace(/\{status\}/g, statusFormatted)
+                .replace(/\{resultSummary\}/g, resultBlock)
+                .replace(/\{reportUrl\}/g, shortUrl)
+                .replace(/\{clinicName\}/g, clinicName);
+
+            if (shortUrl && (!template || !template.includes("{reportUrl}"))) {
+                msg += `\n🔗 *View Full Report:* ${shortUrl}\n`;
+            }
+            return msg;
+        };
+
+        const mode = settings?.whatsappMode || "direct";
+        const countryCode = settings?.whatsappCountryCode || "91";
+
+        if (mode === "ultramsg" || mode === "evolution" || mode === "direct") {
+            setWhatsappReportId(report.id);
+            toast({
+                title: "Generating PDF...",
+                description: `Preparing WhatsApp document for ${owner.firstName}...`,
+            });
+
+            setTimeout(async () => {
+                try {
+                    const base64Pdf = await generatePDFFromElement("printable-lab-report-container");
+                    
+                    const cleanPhone = owner.phone ? owner.phone.replace(/\D/g, '') : '';
+                    const pdfFileName = cleanPhone ? `${cleanPhone}.pdf` : `Report_${Date.now()}.pdf`;
+
+                    if (mode === "ultramsg" || mode === "evolution") {
+                        const message = formatMessage("");
+                        const res = await fetch("/api/whatsapp/send", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                phone: owner.phone,
+                                message: message,
+                                document: base64Pdf,
+                                filename: pdfFileName
+                            })
+                        });
+                        
+                        const data: any = await res.json().catch(() => ({}));
+                        if (!res.ok || data.error) {
+                            throw new Error(data.error || data.message || "Failed to send WhatsApp document");
+                        }
+                        
+                        toast({
+                            title: "WhatsApp Sent",
+                            description: `Lab report sent to ${owner.firstName} via WhatsApp.`,
+                        });
+                    } else {
+                        // Direct mode: Upload PDF to get a secure unguessable public short link
+                        const res = await fetch("/api/upload/base64-pdf", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                base64: base64Pdf,
+                                filename: pdfFileName,
+                                ownerPhone: owner.phone,
+                                petName: pet?.name,
+                                reportTitle: report.title
+                            })
+                        });
+                        
+                        if (!res.ok) throw new Error("Failed to generate PDF sharing link");
+                        const data = await res.json();
+                        
+                        // Short unguessable secure report link: e.g. https://clinic.com/r/a7e93f2c
+                        const reportPath = data.url || (data.token ? `/r/${data.token}` : `/r/${pdfFileName}`);
+                        const fullUrl = `${window.location.origin}${reportPath}`;
+                        const finalMessage = formatMessage(fullUrl);
+                        
+                        toast({
+                            title: "Opening WhatsApp",
+                            description: `Preparing WhatsApp chat for ${owner.firstName}...`,
+                        });
+                        
+                        openWhatsAppLink(owner.phone, finalMessage, countryCode);
+                    }
+                } catch (err: any) {
+                    toast({
+                        title: "WhatsApp Share Failed",
+                        description: err.message || "Could not send the PDF document.",
+                        variant: "destructive"
+                    });
+                } finally {
+                    setWhatsappReportId(null);
+                }
+            }, 800);
+            return;
+        }
     };
 
     useEffect(() => {
@@ -477,9 +657,14 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                 `}
             </style>
 
+            {/* Preload Background Image */}
+            {settings?.labReportBackgroundImage && (
+                <img src={settings.labReportBackgroundImage} className="absolute w-0 h-0 opacity-0 pointer-events-none" alt="Preload Background" />
+            )}
+
             {/* Hidden Print Container */}
-            {printReportId && reportToPrint && owner && createPortal(
-                <div id="printable-lab-report-container" className="hidden print:block">
+            {(printReportId || whatsappReportId) && reportToPrint && owner && createPortal(
+                <div id="printable-lab-report-container" className="fixed -left-[2000px] print:left-0">
                     <LabReportRenderer
                         settings={settings || {}}
                         report={reportToPrint}
@@ -562,7 +747,7 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                     {(category === "Hematology" || category === "Hematology & Blood Chemistry") && (
                                         <div className="border p-4 rounded-md space-y-4">
                                             <div className="flex justify-between items-center">
-                                                <h4 className="font-semibold text-sm uppercase">Hematology (CBC) Details</h4>
+                                                <h4 className="font-semibold text-sm uppercase">CBC PANEL</h4>
                                                 <div className="flex items-center gap-2">
                                                     <Input
                                                         type="file"
@@ -643,20 +828,54 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                     />
                                                 ))}
                                             </div>
+                                            <div className="grid grid-cols-2 gap-4 text-sm mt-4 pt-4 border-t border-muted">
+                                                <FormField
+                                                    control={form.control}
+                                                    name="details.bloodSmear"
+                                                    render={({ field: detailField }) => (
+                                                        <FormItem className="space-y-1">
+                                                            <FormLabel className="text-xs uppercase">Blood Smear Test</FormLabel>
+                                                            <FormControl>
+                                                                <BloodSmearBuilder
+                                                                    value={(detailField.value as string) || ""}
+                                                                    onChange={detailField.onChange}
+                                                                    petSpecies={pet?.species}
+                                                                />
+                                                            </FormControl>
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={form.control}
+                                                    name="details.wetFilm"
+                                                    render={({ field: detailField }) => (
+                                                        <FormItem className="space-y-1">
+                                                            <FormLabel className="text-xs uppercase">Wet Film Test</FormLabel>
+                                                            <FormControl>
+                                                                <WetFilmBuilder
+                                                                    value={(detailField.value as string) || ""}
+                                                                    onChange={detailField.onChange}
+                                                                    petSpecies={pet?.species}
+                                                                />
+                                                            </FormControl>
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                     {(category === "Blood Chemistry" || category === "Hematology & Blood Chemistry") && (
                                         <div className="border p-4 rounded-md space-y-4">
                                             <h4 className="font-semibold text-sm uppercase">Blood Chemistry Details</h4>
                                             <div className="grid grid-cols-3 gap-2 text-sm">
-                                                {["glucose", "urea", "creatinine", "alt", "ast", "alp", "totalProtein", "albumin", "globulin", "totalBilirubin", "sodium", "potassium", "chloride", "calcium", "phosphorus"].map(field => (
+                                                {["ast", "alt", "alp", "ggt", "totalBilirubin", "totalProtein", "albumin", "globulin", "cholesterol", "triglyceride", "creatinine", "urea", "amylase", "lipase", "ck", "calcium", "phosphorus", "magnesium", "sodium", "potassium", "chloride", "glucose"].map(field => (
                                                     <FormField
                                                         key={field}
                                                         control={form.control}
                                                         name={`details.${field}` as any}
                                                         render={({ field: detailField }) => (
                                                             <FormItem className="space-y-1">
-                                                                <FormLabel className="text-xs uppercase">{field}</FormLabel>
+                                                                <FormLabel className="text-xs uppercase">{field.replace(/([A-Z])/g, ' $1').trim()}</FormLabel>
                                                                 <FormControl>
                                                                     <Input className="h-8 text-sm" {...detailField} value={detailField.value || ""} />
                                                                 </FormControl>
@@ -672,21 +891,28 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                             <h4 className="font-semibold text-sm uppercase">Biochemistry Details</h4>
                                             <div className="grid grid-cols-3 gap-2 text-sm">
                                                 {[
-                                                    { key: "bio_glucose", label: "Glucose" },
-                                                    { key: "bio_urea", label: "Urea (BUN)" },
-                                                    { key: "bio_creatinine", label: "Creatinine" },
-                                                    { key: "bio_alt", label: "ALT (SGPT)" },
                                                     { key: "bio_ast", label: "AST (SGOT)" },
+                                                    { key: "bio_alt", label: "ALT (SGPT)" },
                                                     { key: "bio_alp", label: "ALP" },
+                                                    { key: "bio_ggt", label: "GGT" },
+                                                    { key: "bio_totalBilirubin", label: "Total Bilirubin" },
                                                     { key: "bio_totalProtein", label: "Total Protein" },
                                                     { key: "bio_albumin", label: "Albumin" },
                                                     { key: "bio_globulin", label: "Globulin" },
-                                                    { key: "bio_totalBilirubin", label: "Total Bilirubin" },
+                                                    { key: "bio_cholesterol", label: "Cholesterol" },
+                                                    { key: "bio_triglyceride", label: "Triglyceride" },
+                                                    { key: "bio_creatinine", label: "Creatinine" },
+                                                    { key: "bio_urea", label: "Urea (BUN)" },
+                                                    { key: "bio_amylase", label: "Amylase" },
+                                                    { key: "bio_lipase", label: "Lipase" },
+                                                    { key: "bio_ck", label: "CK (CPK)" },
+                                                    { key: "bio_calcium", label: "Calcium" },
+                                                    { key: "bio_phosphorus", label: "Phosphorus" },
+                                                    { key: "bio_magnesium", label: "Magnesium" },
                                                     { key: "bio_sodium", label: "Sodium" },
                                                     { key: "bio_potassium", label: "Potassium" },
                                                     { key: "bio_chloride", label: "Chloride" },
-                                                    { key: "bio_calcium", label: "Calcium" },
-                                                    { key: "bio_phosphorus", label: "Phosphorus" },
+                                                    { key: "bio_glucose", label: "Glucose" },
                                                 ].map(({ key, label }) => (
                                                     <FormField
                                                         key={key}
@@ -703,6 +929,25 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                     />
                                                 ))}
                                             </div>
+                                        </div>
+                                    )}
+                                    {category === "Reproductive" && (
+                                        <div className="border p-4 rounded-md space-y-4 border-rose-200 bg-rose-50/30">
+                                            <h4 className="font-semibold text-sm uppercase text-rose-800">
+                                                {form.watch("title")?.includes("Progesterone") && !form.watch("title")?.includes("EVC") && !form.watch("title")?.includes("Vaginal Cytology") 
+                                                    ? "Progesterone Assay"
+                                                    : form.watch("title")?.includes("EVC") || form.watch("title")?.includes("Vaginal Cytology")
+                                                    ? "Vaginal Cytology (EVC)"
+                                                    : "Reproductive Test"}
+                                            </h4>
+                                            <VaginalCytologyBuilder
+                                                value={(form.watch("details") as Record<string, string>) || {}}
+                                                onChange={(newVals) => {
+                                                    const cur = form.getValues("details") as Record<string, string> || {};
+                                                    form.setValue("details" as any, { ...cur, ...newVals });
+                                                }}
+                                                reportTitle={form.watch("title")}
+                                            />
                                         </div>
                                     )}
                                     <FormField
@@ -784,28 +1029,39 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                             </span>
                                                         </CardTitle>
                                                     </div>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="text-destructive hover:text-destructive/90 -mt-2 -mr-2"
-                                                        onClick={() => {
-                                                            if (confirm("Are you sure you want to delete this report?")) {
-                                                                deleteMutation.mutate(report.id);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
-
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="-mt-2"
-                                                        onClick={() => handlePrint(report.id)}
-                                                    >
-                                                        <Printer className="h-4 w-4" />
-                                                    </Button>
-
+                                                    <div className="flex items-center gap-1 -mt-2">
+                                                        {canDeleteReport && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                                onClick={() => setDeleteConfirmId(report.id)}
+                                                                disabled={deleteMutation.isPending && deleteMutation.variables === report.id}
+                                                                title="Delete lab report"
+                                                            >
+                                                                {deleteMutation.isPending && deleteMutation.variables === report.id
+                                                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                                    : <Trash2 className="h-4 w-4" />}
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366] hover:text-white transition-all rounded-full h-8 w-8"
+                                                            onClick={(e) => handleWhatsAppShare(report, e)}
+                                                            title="Share report on WhatsApp"
+                                                        >
+                                                            <FaWhatsapp className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => handlePrint(report.id)}
+                                                            title="Print report"
+                                                        >
+                                                            <Printer className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="text-sm space-y-2">
@@ -818,7 +1074,7 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                     return (
                                                         <div className="space-y-4 mt-2">
                                                             <div>
-                                                                <h5 className="font-semibold text-xs uppercase tracking-wider mb-2">Hematology (CBC) Panel</h5>
+                                                                <h5 className="font-semibold text-xs uppercase tracking-wider mb-2">CBC PANEL</h5>
                                                                 <div className="border rounded-md overflow-hidden">
                                                                     <table className="w-full text-xs">
                                                                         <thead>
@@ -831,23 +1087,23 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                         </thead>
                                                                         <tbody>
                                                                             {[
-                                                                                { key: "rbc", label: "RBC", unit: "million/µL", ref: "5.5 – 8.5" },
-                                                                                { key: "hb", label: "Hemoglobin (Hb)", unit: "g/dL", ref: "12 – 18" },
-                                                                                { key: "pcv", label: "PCV (HCT)", unit: "%", ref: "37 – 55" },
-                                                                                { key: "wbc", label: "WBC", unit: "/µL", ref: "6,000 – 17,000" },
-                                                                                { key: "platelet", label: "Platelet Count", unit: "/µL", ref: "200,000 – 500,000" },
-                                                                                { key: "mcv", label: "MCV", unit: "fL", ref: "60 – 77" },
-                                                                                { key: "mch", label: "MCH", unit: "pg", ref: "19 – 23" },
-                                                                                { key: "mchc", label: "MCHC", unit: "g/dL", ref: "32 – 36" },
-                                                                                { key: "neutrophils", label: "Neutrophils", unit: "%", ref: "60 – 77" },
-                                                                                { key: "lymphocytes", label: "Lymphocytes", unit: "%", ref: "12 – 30" },
-                                                                                { key: "monocytes", label: "Monocytes", unit: "%", ref: "3 – 10" },
-                                                                                { key: "eosinophils", label: "Eosinophils", unit: "%", ref: "2 – 10" },
-                                                                                { key: "basophils", label: "Basophils", unit: "%", ref: "0 – 1" },
-                                                                            ].map((row) => (
+                                                                                { key: "hb", label: "Hemoglobin (Hb)", unit: "% (g/dL)", ref: "14 - 20" },
+                                                                                { key: "pcv", label: "PCV (HCT)", unit: "%", ref: "40 - 56" },
+                                                                                { key: "rbc", label: "RBC", unit: "×10⁶/μL", ref: "5.7 - 8.3" },
+                                                                                { key: "mcv", label: "MCV", unit: "fL", ref: "64 - 74" },
+                                                                                { key: "mch", label: "MCH", unit: "pg", ref: "22 - 26" },
+                                                                                { key: "mchc", label: "MCHC", unit: "% (g/dL)", ref: "33 - 38" },
+                                                                                { key: "wbc", label: "WBC", unit: "×10³/μL", ref: "5.0 - 13" },
+                                                                                { key: "neutrophils", label: "Neutrophils", unit: "%", ref: "68%" },
+                                                                                { key: "lymphocytes", label: "Lymphocytes", unit: "%", ref: "26%" },
+                                                                                { key: "monocytes", label: "Monocytes", unit: "%", ref: "6%" },
+                                                                                { key: "eosinophils", label: "Eosinophils", unit: "%", ref: "2 - 10" },
+                                                                                { key: "basophils", label: "Basophils", unit: "%", ref: "0 - 1" },
+                                                                                { key: "platelet", label: "Platelet Count", unit: "×10³/μL", ref: "134 - 396" },
+                                                                            ].filter(row => d[row.key] !== undefined && d[row.key] !== "").map((row) => (
                                                                                 <tr key={row.key} className="border-t border-muted/30">
                                                                                     <td className="p-2">{row.label}</td>
-                                                                                    <td className="p-2 font-medium">{d[row.key] || "–"}</td>
+                                                                                    <td className="p-2 font-medium">{d[row.key]}</td>
                                                                                     <td className="p-2 text-muted-foreground">{row.unit}</td>
                                                                                     <td className="p-2 text-muted-foreground">{getDynamicRefRange(row.key, row.label, row.ref)}</td>
                                                                                 </tr>
@@ -855,6 +1111,18 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                         </tbody>
                                                                     </table>
                                                                 </div>
+                                                                {d.bloodSmear && (
+                                                                    <div className="mt-4">
+                                                                        <h6 className="font-semibold text-xs uppercase text-muted-foreground mb-1">Blood Smear Test</h6>
+                                                                        <div className="p-3 bg-muted/40 border rounded-md text-sm whitespace-pre-wrap">{d.bloodSmear}</div>
+                                                                    </div>
+                                                                )}
+                                                                {d.wetFilm && (
+                                                                    <div className="mt-3">
+                                                                        <h6 className="font-semibold text-xs uppercase text-muted-foreground mb-1">Wet Film Test</h6>
+                                                                        <div className="p-3 bg-muted/40 border rounded-md text-sm whitespace-pre-wrap">{d.wetFilm}</div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
@@ -878,21 +1146,28 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                         </thead>
                                                                         <tbody>
                                                                             {[
-                                                                                { key: "bio_glucose", label: "Glucose", unit: "mg/dL", ref: "70 – 120" },
-                                                                                { key: "bio_urea", label: "Urea (BUN)", unit: "mg/dL", ref: "7 – 27" },
-                                                                                { key: "bio_creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 – 1.5" },
-                                                                                { key: "bio_alt", label: "ALT (SGPT)", unit: "U/L", ref: "10 – 125" },
-                                                                                { key: "bio_ast", label: "AST (SGOT)", unit: "U/L", ref: "15 – 66" },
-                                                                                { key: "bio_alp", label: "ALP", unit: "U/L", ref: "20 – 150" },
-                                                                                { key: "bio_totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.5 – 7.5" },
-                                                                                { key: "bio_albumin", label: "Albumin", unit: "g/dL", ref: "2.7 – 4.4" },
-                                                                                { key: "bio_globulin", label: "Globulin", unit: "g/dL", ref: "2.5 – 4.5" },
-                                                                                { key: "bio_totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.1 – 0.6" },
-                                                                                { key: "bio_sodium", label: "Sodium", unit: "mmol/L", ref: "140 – 155" },
-                                                                                { key: "bio_potassium", label: "Potassium", unit: "mmol/L", ref: "3.5 – 5.8" },
-                                                                                { key: "bio_chloride", label: "Chloride", unit: "mmol/L", ref: "105 – 115" },
-                                                                                { key: "bio_calcium", label: "Calcium", unit: "mg/dL", ref: "9 – 11.5" },
-                                                                                { key: "bio_phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.5 – 6.0" },
+                                                                                { key: "bio_ast", label: "AST (SGOT)", unit: "U/L", ref: "23 - 66" },
+                                                                                { key: "bio_alt", label: "ALT (SGPT)", unit: "U/L", ref: "21 - 102" },
+                                                                                { key: "bio_alp", label: "ALP", unit: "U/L", ref: "20 - 156" },
+                                                                                { key: "bio_ggt", label: "GGT", unit: "U/L", ref: "1.2 - 6.4" },
+                                                                                { key: "bio_totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.10 - 0.50" },
+                                                                                { key: "bio_totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.4 - 7.1" },
+                                                                                { key: "bio_albumin", label: "Albumin", unit: "g/dL", ref: "2.6 - 3.3" },
+                                                                                { key: "bio_globulin", label: "Globulin", unit: "g/dL", ref: "2.7 - 4.4" },
+                                                                                { key: "bio_cholesterol", label: "Cholesterol", unit: "mg/dL", ref: "135 - 270" },
+                                                                                { key: "bio_triglyceride", label: "Triglyceride", unit: "mg/dL", ref: "20 - 112" },
+                                                                                { key: "bio_creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 - 1.5" },
+                                                                                { key: "bio_urea", label: "Urea (BUN)", unit: "mg/dL", ref: "10 - 28" },
+                                                                                { key: "bio_amylase", label: "Amylase", unit: "U/L", ref: "185 - 700" },
+                                                                                { key: "bio_lipase", label: "Lipase", unit: "U/L", ref: "13 - 200" },
+                                                                                { key: "bio_ck", label: "CK (CPK)", unit: "U/L", ref: "< 400" },
+                                                                                { key: "bio_calcium", label: "Calcium", unit: "mg/dL", ref: "9.0 - 11.3" },
+                                                                                { key: "bio_phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.6 - 6.2" },
+                                                                                { key: "bio_magnesium", label: "Magnesium", unit: "mg/dL", ref: "1.8 - 2.4" },
+                                                                                { key: "bio_sodium", label: "Sodium", unit: "mEq/L", ref: "141 - 152" },
+                                                                                { key: "bio_potassium", label: "Potassium", unit: "mEq/L", ref: "4.4 - 5.3" },
+                                                                                { key: "bio_chloride", label: "Chloride", unit: "mEq/L", ref: "105 - 115" },
+                                                                                { key: "bio_glucose", label: "Glucose", unit: "mg/dL", ref: "65 - 118" }
                                                                             ].map((row) => (
                                                                                 <tr key={row.key} className="border-t border-muted/30">
                                                                                     <td className="p-2">{row.label}</td>
@@ -928,21 +1203,28 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                         </thead>
                                                                         <tbody>
                                                                             {[
-                                                                                { key: "glucose", label: "Glucose", unit: "mg/dL", ref: "70 – 120" },
-                                                                                { key: "urea", label: "Urea (BUN)", unit: "mg/dL", ref: "7 – 27" },
-                                                                                { key: "creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 – 1.5" },
-                                                                                { key: "alt", label: "ALT (SGPT)", unit: "U/L", ref: "10 – 125" },
-                                                                                { key: "ast", label: "AST (SGOT)", unit: "U/L", ref: "15 – 66" },
-                                                                                { key: "alp", label: "ALP", unit: "U/L", ref: "20 – 150" },
-                                                                                { key: "totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.5 – 7.5" },
-                                                                                { key: "albumin", label: "Albumin", unit: "g/dL", ref: "2.7 – 4.4" },
-                                                                                { key: "globulin", label: "Globulin", unit: "g/dL", ref: "2.5 – 4.5" },
-                                                                                { key: "totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.1 – 0.6" },
-                                                                                { key: "sodium", label: "Sodium", unit: "mmol/L", ref: "140 – 155" },
-                                                                                { key: "potassium", label: "Potassium", unit: "mmol/L", ref: "3.5 – 5.8" },
-                                                                                { key: "chloride", label: "Chloride", unit: "mmol/L", ref: "105 – 115" },
-                                                                                { key: "calcium", label: "Calcium", unit: "mg/dL", ref: "9 – 11.5" },
-                                                                                { key: "phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.5 – 6.0" },
+                                                                                { key: "ast", label: "AST (SGOT)", unit: "U/L", ref: "23 - 66" },
+                                                                                { key: "alt", label: "ALT (SGPT)", unit: "U/L", ref: "21 - 102" },
+                                                                                { key: "alp", label: "ALP", unit: "U/L", ref: "20 - 156" },
+                                                                                { key: "ggt", label: "GGT", unit: "U/L", ref: "1.2 - 6.4" },
+                                                                                { key: "totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.10 - 0.50" },
+                                                                                { key: "totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.4 - 7.1" },
+                                                                                { key: "albumin", label: "Albumin", unit: "g/dL", ref: "2.6 - 3.3" },
+                                                                                { key: "globulin", label: "Globulin", unit: "g/dL", ref: "2.7 - 4.4" },
+                                                                                { key: "cholesterol", label: "Cholesterol", unit: "mg/dL", ref: "135 - 270" },
+                                                                                { key: "triglyceride", label: "Triglyceride", unit: "mg/dL", ref: "20 - 112" },
+                                                                                { key: "creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 - 1.5" },
+                                                                                { key: "urea", label: "Urea (BUN)", unit: "mg/dL", ref: "10 - 28" },
+                                                                                { key: "amylase", label: "Amylase", unit: "U/L", ref: "185 - 700" },
+                                                                                { key: "lipase", label: "Lipase", unit: "U/L", ref: "13 - 200" },
+                                                                                { key: "ck", label: "CK (CPK)", unit: "U/L", ref: "< 400" },
+                                                                                { key: "calcium", label: "Calcium", unit: "mg/dL", ref: "9.0 - 11.3" },
+                                                                                { key: "phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.6 - 6.2" },
+                                                                                { key: "magnesium", label: "Magnesium", unit: "mg/dL", ref: "1.8 - 2.4" },
+                                                                                { key: "sodium", label: "Sodium", unit: "mEq/L", ref: "141 - 152" },
+                                                                                { key: "potassium", label: "Potassium", unit: "mEq/L", ref: "4.4 - 5.3" },
+                                                                                { key: "chloride", label: "Chloride", unit: "mEq/L", ref: "105 - 115" },
+                                                                                { key: "glucose", label: "Glucose", unit: "mg/dL", ref: "65 - 118" }
                                                                             ].map((row) => (
                                                                                 <tr key={row.key} className="border-t border-muted/30">
                                                                                     <td className="p-2">{row.label}</td>
@@ -961,14 +1243,14 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
 
                                                 {report.category === "Hematology & Blood Chemistry" && report.details && (() => {
                                                     const d = report.details as any;
-                                                    const hasHematology = d.rbc || d.hb || d.pcv || d.wbc || d.platelet || d.mcv || d.mch || d.mchc || d.neutrophils || d.lymphocytes || d.monocytes || d.eosinophils || d.basophils;
-                                                    const hasChemistry = d.glucose || d.urea || d.creatinine || d.alt || d.ast || d.alp || d.totalProtein || d.albumin || d.globulin || d.totalBilirubin || d.sodium || d.potassium || d.chloride || d.calcium || d.phosphorus;
+                                                    const hasHematology = d.rbc || d.hb || d.pcv || d.wbc || d.platelet || d.mcv || d.mch || d.mchc || d.neutrophils || d.lymphocytes || d.monocytes || d.eosinophils || d.basophils || d.bloodSmear || d.wetFilm;
+                                                    const hasChemistry = d.glucose || d.urea || d.creatinine || d.alt || d.ast || d.alp || d.totalProtein || d.albumin || d.globulin || d.totalBilirubin || d.sodium || d.potassium || d.chloride || d.calcium || d.phosphorus || d.ggt || d.cholesterol || d.triglyceride || d.amylase || d.lipase || d.ck || d.magnesium;
                                                     if (!hasHematology && !hasChemistry) return null;
                                                     return (
                                                         <div className="space-y-4 mt-2">
                                                             {hasHematology && (
                                                                 <div>
-                                                                    <h5 className="font-semibold text-xs uppercase tracking-wider mb-2">Hematology (CBC) Panel</h5>
+                                                                    <h5 className="font-semibold text-xs uppercase tracking-wider mb-2">CBC PANEL</h5>
                                                                     <div className="border rounded-md overflow-hidden">
                                                                         <table className="w-full text-xs">
                                                                             <thead>
@@ -981,23 +1263,23 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                             </thead>
                                                                             <tbody>
                                                                                 {[
-                                                                                    { key: "rbc", label: "RBC", unit: "million/µL", ref: "5.5 – 8.5" },
-                                                                                    { key: "hb", label: "Hemoglobin (Hb)", unit: "g/dL", ref: "12 – 18" },
-                                                                                    { key: "pcv", label: "PCV (HCT)", unit: "%", ref: "37 – 55" },
-                                                                                    { key: "wbc", label: "WBC", unit: "/µL", ref: "6,000 – 17,000" },
-                                                                                    { key: "platelet", label: "Platelet Count", unit: "/µL", ref: "200,000 – 500,000" },
-                                                                                    { key: "mcv", label: "MCV", unit: "fL", ref: "60 – 77" },
-                                                                                    { key: "mch", label: "MCH", unit: "pg", ref: "19 – 23" },
-                                                                                    { key: "mchc", label: "MCHC", unit: "g/dL", ref: "32 – 36" },
-                                                                                    { key: "neutrophils", label: "Neutrophils", unit: "%", ref: "60 – 77" },
-                                                                                    { key: "lymphocytes", label: "Lymphocytes", unit: "%", ref: "12 – 30" },
-                                                                                    { key: "monocytes", label: "Monocytes", unit: "%", ref: "3 – 10" },
-                                                                                    { key: "eosinophils", label: "Eosinophils", unit: "%", ref: "2 – 10" },
-                                                                                    { key: "basophils", label: "Basophils", unit: "%", ref: "0 – 1" },
-                                                                                ].map((row) => (
+                                                                                    { key: "hb", label: "Hemoglobin (Hb)", unit: "% (g/dL)", ref: "14 - 20" },
+                                                                                    { key: "pcv", label: "PCV (HCT)", unit: "%", ref: "40 - 56" },
+                                                                                    { key: "rbc", label: "RBC", unit: "×10⁶/μL", ref: "5.7 - 8.3" },
+                                                                                    { key: "mcv", label: "MCV", unit: "fL", ref: "64 - 74" },
+                                                                                    { key: "mch", label: "MCH", unit: "pg", ref: "22 - 26" },
+                                                                                    { key: "mchc", label: "MCHC", unit: "% (g/dL)", ref: "33 - 38" },
+                                                                                    { key: "wbc", label: "WBC", unit: "×10³/μL", ref: "5.0 - 13" },
+                                                                                    { key: "neutrophils", label: "Neutrophils", unit: "%", ref: "68%" },
+                                                                                    { key: "lymphocytes", label: "Lymphocytes", unit: "%", ref: "26%" },
+                                                                                    { key: "monocytes", label: "Monocytes", unit: "%", ref: "6%" },
+                                                                                    { key: "eosinophils", label: "Eosinophils", unit: "%", ref: "2 - 10" },
+                                                                                    { key: "basophils", label: "Basophils", unit: "%", ref: "0 - 1" },
+                                                                                    { key: "platelet", label: "Platelet Count", unit: "×10³/μL", ref: "134 - 396" },
+                                                                                ].filter(row => d[row.key] !== undefined && d[row.key] !== "").map((row) => (
                                                                                     <tr key={row.key} className="border-t border-muted/30">
                                                                                         <td className="p-2">{row.label}</td>
-                                                                                        <td className="p-2 font-medium">{d[row.key] || "–"}</td>
+                                                                                        <td className="p-2 font-medium">{d[row.key]}</td>
                                                                                         <td className="p-2 text-muted-foreground">{row.unit}</td>
                                                                                         <td className="p-2 text-muted-foreground">{getDynamicRefRange(row.key, row.label, row.ref)}</td>
                                                                                     </tr>
@@ -1005,6 +1287,18 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                             </tbody>
                                                                         </table>
                                                                     </div>
+                                                                    {d.bloodSmear && (
+                                                                        <div className="mt-4">
+                                                                            <h6 className="font-semibold text-xs uppercase text-muted-foreground mb-1">Blood Smear Test</h6>
+                                                                            <div className="p-3 bg-muted/40 border rounded-md text-sm whitespace-pre-wrap">{d.bloodSmear}</div>
+                                                                        </div>
+                                                                    )}
+                                                                    {d.wetFilm && (
+                                                                        <div className="mt-3">
+                                                                            <h6 className="font-semibold text-xs uppercase text-muted-foreground mb-1">Wet Film Test</h6>
+                                                                            <div className="p-3 bg-muted/40 border rounded-md text-sm whitespace-pre-wrap">{d.wetFilm}</div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                             {hasChemistry && (
@@ -1022,21 +1316,28 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                                                                             </thead>
                                                                             <tbody>
                                                                                 {[
-                                                                                    { key: "glucose", label: "Glucose", unit: "mg/dL", ref: "70 – 120" },
-                                                                                    { key: "urea", label: "Urea (BUN)", unit: "mg/dL", ref: "7 – 27" },
-                                                                                    { key: "creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 – 1.5" },
-                                                                                    { key: "alt", label: "ALT (SGPT)", unit: "U/L", ref: "10 – 125" },
-                                                                                    { key: "ast", label: "AST (SGOT)", unit: "U/L", ref: "15 – 66" },
-                                                                                    { key: "alp", label: "ALP", unit: "U/L", ref: "20 – 150" },
-                                                                                    { key: "totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.5 – 7.5" },
-                                                                                    { key: "albumin", label: "Albumin", unit: "g/dL", ref: "2.7 – 4.4" },
-                                                                                    { key: "globulin", label: "Globulin", unit: "g/dL", ref: "2.5 – 4.5" },
-                                                                                    { key: "totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.1 – 0.6" },
-                                                                                    { key: "sodium", label: "Sodium", unit: "mmol/L", ref: "140 – 155" },
-                                                                                    { key: "potassium", label: "Potassium", unit: "mmol/L", ref: "3.5 – 5.8" },
-                                                                                    { key: "chloride", label: "Chloride", unit: "mmol/L", ref: "105 – 115" },
-                                                                                    { key: "calcium", label: "Calcium", unit: "mg/dL", ref: "9 – 11.5" },
-                                                                                    { key: "phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.5 – 6.0" },
+                                                                                    { key: "ast", label: "AST (SGOT)", unit: "U/L", ref: "23 - 66" },
+                                                                                    { key: "alt", label: "ALT (SGPT)", unit: "U/L", ref: "21 - 102" },
+                                                                                    { key: "alp", label: "ALP", unit: "U/L", ref: "20 - 156" },
+                                                                                    { key: "ggt", label: "GGT", unit: "U/L", ref: "1.2 - 6.4" },
+                                                                                    { key: "totalBilirubin", label: "Total Bilirubin", unit: "mg/dL", ref: "0.10 - 0.50" },
+                                                                                    { key: "totalProtein", label: "Total Protein", unit: "g/dL", ref: "5.4 - 7.1" },
+                                                                                    { key: "albumin", label: "Albumin", unit: "g/dL", ref: "2.6 - 3.3" },
+                                                                                    { key: "globulin", label: "Globulin", unit: "g/dL", ref: "2.7 - 4.4" },
+                                                                                    { key: "cholesterol", label: "Cholesterol", unit: "mg/dL", ref: "135 - 270" },
+                                                                                    { key: "triglyceride", label: "Triglyceride", unit: "mg/dL", ref: "20 - 112" },
+                                                                                    { key: "creatinine", label: "Creatinine", unit: "mg/dL", ref: "0.5 - 1.5" },
+                                                                                    { key: "urea", label: "Urea (BUN)", unit: "mg/dL", ref: "10 - 28" },
+                                                                                    { key: "amylase", label: "Amylase", unit: "U/L", ref: "185 - 700" },
+                                                                                    { key: "lipase", label: "Lipase", unit: "U/L", ref: "13 - 200" },
+                                                                                    { key: "ck", label: "CK (CPK)", unit: "U/L", ref: "< 400" },
+                                                                                    { key: "calcium", label: "Calcium", unit: "mg/dL", ref: "9.0 - 11.3" },
+                                                                                    { key: "phosphorus", label: "Phosphorus", unit: "mg/dL", ref: "2.6 - 6.2" },
+                                                                                    { key: "magnesium", label: "Magnesium", unit: "mg/dL", ref: "1.8 - 2.4" },
+                                                                                    { key: "sodium", label: "Sodium", unit: "mEq/L", ref: "141 - 152" },
+                                                                                    { key: "potassium", label: "Potassium", unit: "mEq/L", ref: "4.4 - 5.3" },
+                                                                                    { key: "chloride", label: "Chloride", unit: "mEq/L", ref: "105 - 115" },
+                                                                                    { key: "glucose", label: "Glucose", unit: "mg/dL", ref: "65 - 118" }
                                                                                 ].map((row) => (
                                                                                     <tr key={row.key} className="border-t border-muted/30">
                                                                                         <td className="p-2">{row.label}</td>
@@ -1116,6 +1417,32 @@ export function LabReportsTab({ petId, pet, owner }: LabReportsTabProps) {
                     ))}
                 </Accordion>
             )}
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Lab Report?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the lab report and all its results. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => {
+                                if (deleteConfirmId !== null) {
+                                    deleteMutation.mutate(deleteConfirmId);
+                                    setDeleteConfirmId(null);
+                                }
+                            }}
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

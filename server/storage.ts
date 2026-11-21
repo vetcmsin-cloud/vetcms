@@ -28,9 +28,19 @@ import {
   type LabTest, type InsertLabTest, labTests,
   type LabRefRange, type InsertLabRefRange, labRefRanges,
   type Species, type InsertSpecies, species,
+  type BloodSmearPathogen, type InsertBloodSmearPathogen, bloodSmearPathogens,
+  type InventorySubCategory, type InsertInventorySubCategory, inventorySubCategories,
+  type InventoryUnit, type InsertInventoryUnit, inventoryUnits,
+  type InventoryCategory, type InsertInventoryCategory, inventoryCategories,
+  type InventoryProductType, type InsertInventoryProductType, inventoryProductTypes,
+  type TaxCategory, type InsertTaxCategory, taxCategories,
+  type LedgerEntry, type InsertLedgerEntry, ledgerEntries,
+  type Purchase, type InsertPurchase, purchases,
+  type PurchaseItem, type InsertPurchaseItem, purchaseItems,
+  type ExpenseCategory, type InsertExpenseCategory, expenseCategories,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, lte, desc, and, gte } from "drizzle-orm";
+import { eq, sql, lte, desc, and, gte, ilike } from "drizzle-orm";
 
 export interface IStorage {
   getUsers(): Promise<User[]>;
@@ -42,6 +52,7 @@ export interface IStorage {
 
   getOwners(): Promise<Owner[]>;
   getOwner(id: number): Promise<Owner | undefined>;
+  getOwnerByPhone(phone: string): Promise<Owner | undefined>;
   createOwner(owner: InsertOwner): Promise<Owner>;
   updateOwner(id: number, owner: Partial<InsertOwner>): Promise<Owner | undefined>;
   deleteOwner(id: number): Promise<void>;
@@ -86,6 +97,7 @@ export interface IStorage {
   deleteInvoice(id: number): Promise<void>;
 
   getNextInvoiceNumber(): Promise<string>;
+  getAndIncrementNextInvoiceNumber(): Promise<string>;
   getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]>;
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   deleteInvoiceItem(id: number): Promise<void>;
@@ -102,13 +114,36 @@ export interface IStorage {
   eraseAllOwners(): Promise<number>;
   eraseAllInvoices(): Promise<number>;
   eraseAllLabReports(): Promise<number>;
-  eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number }>;
+  eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number; estimates: number; petDocuments: number }>;
 
   getInventoryItems(): Promise<InventoryItem[]>;
+  getInventoryItemsByBaseName(name: string): Promise<InventoryItem[]>;
   getInventoryItem(id: number): Promise<InventoryItem | undefined>;
+  getInventoryItemBySku(sku: string): Promise<InventoryItem | undefined>;
   createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
   updateInventoryItem(id: number, item: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined>;
+  upsertInventoryItem(sku: string, data: InsertInventoryItem): Promise<InventoryItem>;
   deleteInventoryItem(id: number): Promise<void>;
+  getNextItemCode(category: string): Promise<string>;
+
+  getInventorySubCategories(): Promise<InventorySubCategory[]>;
+  createInventorySubCategory(subCategory: InsertInventorySubCategory): Promise<InventorySubCategory>;
+  deleteInventorySubCategory(id: number): Promise<void>;
+
+  getInventoryUnits(): Promise<InventoryUnit[]>;
+  getInventoryUnitByName(name: string): Promise<InventoryUnit | undefined>;
+  createInventoryUnit(unit: InsertInventoryUnit): Promise<InventoryUnit>;
+  deleteInventoryUnit(id: number): Promise<void>;
+
+  getInventoryCategories(): Promise<InventoryCategory[]>;
+  getInventoryCategoryByName(name: string): Promise<InventoryCategory | undefined>;
+  createInventoryCategory(category: InsertInventoryCategory): Promise<InventoryCategory>;
+  deleteInventoryCategory(id: number): Promise<void>;
+
+  getInventoryProductTypes(): Promise<InventoryProductType[]>;
+  getInventoryProductTypeByName(name: string): Promise<InventoryProductType | undefined>;
+  createInventoryProductType(productType: InsertInventoryProductType): Promise<InventoryProductType>;
+  deleteInventoryProductType(id: number): Promise<void>;
 
   getExpenses(): Promise<Expense[]>;
   createExpense(expense: InsertExpense): Promise<Expense>;
@@ -130,6 +165,21 @@ export interface IStorage {
   getPurchaseOrderItems(purchaseOrderId: number): Promise<PurchaseOrderItem[]>;
   createPurchaseOrderItem(item: InsertPurchaseOrderItem): Promise<PurchaseOrderItem>;
   deletePurchaseOrderItem(id: number): Promise<void>;
+  getNextPurchaseOrderNumber(): Promise<string>;
+  getAndIncrementNextPurchaseOrderNumber(): Promise<string>;
+
+  // Purchases
+  getPurchases(): Promise<Purchase[]>;
+  getPurchase(id: number): Promise<Purchase | undefined>;
+  createPurchase(purchase: InsertPurchase): Promise<Purchase>;
+  updatePurchase(id: number, data: Partial<InsertPurchase>): Promise<Purchase | undefined>;
+  deletePurchase(id: number): Promise<void>;
+  getPurchaseItems(purchaseId: number): Promise<PurchaseItem[]>;
+  createPurchaseItem(item: InsertPurchaseItem): Promise<PurchaseItem>;
+  deletePurchaseItem(id: number): Promise<void>;
+  deletePurchaseItemsByPurchase(purchaseId: number): Promise<void>;
+  getNextPurchaseNumber(): Promise<string>;
+  getAndIncrementNextPurchaseNumber(): Promise<string>;
 
   // Low stock
   getLowStockItems(): Promise<InventoryItem[]>;
@@ -150,6 +200,12 @@ export interface IStorage {
   getPetDocuments(petId: number): Promise<PetDocument[]>;
   createPetDocument(doc: InsertPetDocument): Promise<PetDocument>;
   deletePetDocument(id: number): Promise<void>;
+
+  // Blood Smear Pathogens
+  getBloodSmearPathogens(species?: string): Promise<BloodSmearPathogen[]>;
+  createBloodSmearPathogen(pathogen: InsertBloodSmearPathogen): Promise<BloodSmearPathogen>;
+  updateBloodSmearPathogen(id: number, data: Partial<InsertBloodSmearPathogen>): Promise<BloodSmearPathogen | undefined>;
+  deleteBloodSmearPathogen(id: number): Promise<void>;
 
   // Species
   getSpecies(): Promise<Species[]>;
@@ -179,9 +235,28 @@ export interface IStorage {
   updateEstimate(id: number, data: Partial<InsertEstimate>): Promise<Estimate | undefined>;
   deleteEstimate(id: number): Promise<void>;
   getNextEstimateNumber(): Promise<string>;
+  getAndIncrementNextEstimateNumber(): Promise<string>;
   getEstimateItems(estimateId: number): Promise<EstimateItem[]>;
   createEstimateItem(item: InsertEstimateItem): Promise<EstimateItem>;
   deleteEstimateItemsByEstimate(estimateId: number): Promise<void>;
+
+  getTaxCategories(): Promise<TaxCategory[]>;
+  createTaxCategory(data: InsertTaxCategory): Promise<TaxCategory>;
+  updateTaxCategory(id: number, data: Partial<InsertTaxCategory>): Promise<TaxCategory | undefined>;
+  deleteTaxCategory(id: number): Promise<void>;
+
+  getExpenseCategories(): Promise<ExpenseCategory[]>;
+  createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory>;
+  updateExpenseCategory(id: number, data: Partial<InsertExpenseCategory>): Promise<ExpenseCategory | undefined>;
+  deleteExpenseCategory(id: number): Promise<void>;
+
+  // General Ledger
+  getLedgerEntries(filters?: { startDate?: string; endDate?: string; type?: string; search?: string }): Promise<LedgerEntry[]>;
+  createLedgerEntry(entry: InsertLedgerEntry): Promise<LedgerEntry>;
+  deleteLedgerEntry(id: number): Promise<void>;
+  getLedgerEntryByReference(type: string, id: number): Promise<LedgerEntry | undefined>;
+  getNextVoucherNumber(type: string): Promise<string>;
+  getRevenueBreakdown(startDate: string, endDate: string): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -214,11 +289,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOwners(): Promise<Owner[]> {
-    return db.select().from(owners);
+    return db.select().from(owners).orderBy(desc(owners.id));
   }
 
   async getOwner(id: number): Promise<Owner | undefined> {
     const [owner] = await db.select().from(owners).where(eq(owners.id, id));
+    return owner;
+  }
+
+  async getOwnerByPhone(phone: string): Promise<Owner | undefined> {
+    const [owner] = await db.select().from(owners).where(eq(owners.phone, phone));
     return owner;
   }
 
@@ -237,7 +317,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPets(): Promise<Pet[]> {
-    return db.select().from(pets);
+    return db.select().from(pets).orderBy(desc(pets.id));
   }
 
   async getPet(id: number): Promise<Pet | undefined> {
@@ -365,7 +445,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getInvoices(): Promise<Invoice[]> {
-    return db.select().from(invoices);
+    return db.select().from(invoices).orderBy(desc(invoices.id));
   }
 
   async getInvoice(id: number): Promise<Invoice | undefined> {
@@ -374,22 +454,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
-    // Insert first with a temporary invoice number (to avoid constraint clashes),
-    // then update it to the real sequential number based on the assigned row id.
-    const [created] = await db.insert(invoices).values(invoice).returning();
-    const realNumber = `#PET-${String(created.id).padStart(4, "0")}`;
-    if (created.invoiceNumber !== realNumber) {
-      const [updated] = await db
-        .update(invoices)
-        .set({ invoiceNumber: realNumber })
-        .where(eq(invoices.id, created.id))
-        .returning();
-      return updated;
+    let finalInvoiceNumber = invoice.invoiceNumber;
+    
+    if (!finalInvoiceNumber || finalInvoiceNumber.startsWith("#TEMP-")) {
+      finalInvoiceNumber = await this.getAndIncrementNextInvoiceNumber();
     }
+    
+    const [created] = await db.insert(invoices).values({ ...invoice, invoiceNumber: finalInvoiceNumber }).returning();
     return created;
   }
 
   async updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined> {
+    const existing = await this.getInvoice(id);
+    if (!existing) return undefined;
+
     const [updated] = await db.update(invoices).set(data).where(eq(invoices.id, id)).returning();
     return updated;
   }
@@ -400,11 +478,54 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNextInvoiceNumber(): Promise<string> {
-    // Base on actual count of invoices to give a preview number.
-    // The real number is assigned in createInvoice from the actual row id.
-    const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(invoices);
-    const nextNum = (result[0]?.maxId || 0) + 1;
-    return `#PET-${String(nextNum).padStart(4, "0")}`;
+    const setting = await this.getClinicSetting("next_invoice_number");
+    const prefixSetting = await this.getClinicSetting("sales_invoice_prefix");
+    const prefix = prefixSetting?.settingValue || "#PET-";
+    
+    let nextNum: number;
+    if (setting && setting.settingValue) {
+      nextNum = parseInt(setting.settingValue);
+    } else {
+      const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(invoices);
+      nextNum = (result[0]?.maxId || 0) + 1;
+    }
+    return `${prefix}${String(nextNum).padStart(4, "0")}`;
+  }
+
+  async getAndIncrementNextInvoiceNumber(): Promise<string> {
+    return await db.transaction(async (tx) => {
+      const [setting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "next_invoice_number"))
+        .for("update");
+
+      const [prefixSetting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "sales_invoice_prefix"));
+      const prefix = prefixSetting?.settingValue || "#PET-";
+
+      let nextNum: number;
+      if (setting && setting.settingValue) {
+        nextNum = parseInt(setting.settingValue);
+      } else {
+        const result = await tx.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(invoices);
+        nextNum = (result[0]?.maxId || 0) + 1;
+      }
+
+      const formattedNumber = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      await tx
+        .insert(clinicSettings)
+        .values({ settingKey: "next_invoice_number", settingValue: String(nextNum + 1) })
+        .onConflictDoUpdate({
+          target: clinicSettings.settingKey,
+          set: { settingValue: String(nextNum + 1) },
+        });
+
+      return formattedNumber;
+    });
   }
 
   async getInvoiceItems(invoiceId: number): Promise<InvoiceItem[]> {
@@ -438,7 +559,7 @@ export class DatabaseStorage implements IStorage {
       .insert(clinicSettings)
       .values({ settingKey: key, settingValue: value })
       .onConflictDoUpdate({
-        target: clinicSettings.settingKey,
+        target: [clinicSettings.tenantId, clinicSettings.settingKey],
         set: { settingValue: value },
       })
       .returning();
@@ -446,12 +567,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertClinicSettings(settings: { key: string; value: string }[]): Promise<ClinicSetting[]> {
-    const results: ClinicSetting[] = [];
-    for (const s of settings) {
-      const result = await this.upsertClinicSetting(s.key, s.value);
-      results.push(result);
-    }
-    return results;
+    return Promise.all(settings.map(s => this.upsertClinicSetting(s.key, s.value)));
   }
 
   async eraseAllMedicalRecords(): Promise<number> {
@@ -499,8 +615,8 @@ export class DatabaseStorage implements IStorage {
     return existing.length;
   }
 
-  async eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number }> {
-    const [recs, apts, items, invs, allPets, allOwners, allLabReports] = await Promise.all([
+  async eraseAllData(): Promise<{ medicalRecords: number; appointments: number; invoiceItems: number; invoices: number; pets: number; owners: number; labReports: number; estimates: number; petDocuments: number }> {
+    const [recs, apts, items, invs, allPets, allOwners, allLabReports, allEstimates, allPetDocs] = await Promise.all([
       db.select().from(medicalRecords),
       db.select().from(appointments),
       db.select().from(invoiceItems),
@@ -508,14 +624,50 @@ export class DatabaseStorage implements IStorage {
       db.select().from(pets),
       db.select().from(owners),
       db.select().from(labReports),
+      db.select().from(estimates),
+      db.select().from(petDocuments),
     ]);
+
+    // Wipe everything to leave a completely clean slate
+    // Start with child tables (foreign key dependencies)
     await db.delete(labReports);
     await db.delete(medicalRecords);
     await db.delete(appointments);
     await db.delete(invoiceItems);
     await db.delete(invoices);
+    await db.delete(purchaseOrderItems);
+    await db.delete(purchaseOrders);
+    await db.delete(purchaseItems);
+    await db.delete(purchases);
+
+    await db.delete(estimateItems);
+    await db.delete(estimates);
+    await db.delete(petDocuments);
+    await db.delete(activityLogs);
+    await db.delete(ledgerEntries);
+    await db.delete(expenses);
+    await db.delete(feeStructures);
+
+    // Main tables and metadata
+    await db.delete(inventoryItems);
+    await db.delete(suppliers);
+    await db.delete(inventorySubCategories);
+    await db.delete(inventoryUnits);
+    await db.delete(inventoryCategories);
+    await db.delete(inventoryProductTypes);
+    await db.delete(taxCategories);
+    await db.delete(species);
+    await db.delete(bloodSmearPathogens);
+
+    // Lab configuration
+    await db.delete(labRefRanges);
+    await db.delete(labTests);
+    await db.delete(labTestCategories);
+
+    // Pets and Owners must be deleted last because of relationships
     await db.delete(pets);
     await db.delete(owners);
+
     return {
       medicalRecords: recs.length,
       appointments: apts.length,
@@ -524,21 +676,59 @@ export class DatabaseStorage implements IStorage {
       pets: allPets.length,
       owners: allOwners.length,
       labReports: allLabReports.length,
+      estimates: allEstimates.length,
+      petDocuments: allPetDocs.length,
     };
   }
-
   async getInventoryItems(): Promise<InventoryItem[]> {
     return db.select().from(inventoryItems);
+  }
+
+  async getInventoryItemsByBaseName(name: string): Promise<InventoryItem[]> {
+    return db.select().from(inventoryItems).where(ilike(inventoryItems.name, `${name}%`));
   }
 
   async getInventoryItem(id: number): Promise<InventoryItem | undefined> {
     const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
     return item;
   }
+  
+  async getInventoryItemBySku(sku: string): Promise<InventoryItem | undefined> {
+    const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.sku, sku));
+    return item;
+  }
 
   async createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem> {
     const [created] = await db.insert(inventoryItems).values(item).returning();
+    const realNumber = `PRD-${String(created.id).padStart(4, "0")}`;
+    if (!created.productId || created.productId !== realNumber) {
+      const [updated] = await db
+        .update(inventoryItems)
+        .set({ productId: realNumber })
+        .where(eq(inventoryItems.id, created.id))
+        .returning();
+      return updated;
+    }
     return created;
+  }
+  
+  async getNextItemCode(category: string): Promise<string> {
+    const rawPrefix = String(category || "GEN").substring(0, 3).toUpperCase();
+    const prefix = rawPrefix.length >= 3 ? rawPrefix : rawPrefix.padEnd(3, 'X');
+    
+    const items = await db.select().from(inventoryItems).where(ilike(inventoryItems.sku, `${prefix}%`));
+    
+    let lastNumber = 0;
+    for (const item of items) {
+      const numPart = item.sku.substring(prefix.length);
+      const num = parseInt(numPart);
+      if (!isNaN(num) && num > lastNumber) {
+        lastNumber = num;
+      }
+    }
+    
+    const nextNumber = lastNumber + 1;
+    return `${prefix}${String(nextNumber).padStart(7, "0")}`;
   }
 
   async updateInventoryItem(id: number, data: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined> {
@@ -546,8 +736,84 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async upsertInventoryItem(sku: string, data: InsertInventoryItem): Promise<InventoryItem> {
+    const existing = await this.getInventoryItemBySku(sku);
+    if (existing) {
+      const updated = await this.updateInventoryItem(existing.id, data);
+      return updated!;
+    }
+    return this.createInventoryItem(data);
+  }
+
   async deleteInventoryItem(id: number): Promise<void> {
     await db.delete(inventoryItems).where(eq(inventoryItems.id, id));
+  }
+
+  async getInventorySubCategories(): Promise<InventorySubCategory[]> {
+    return db.select().from(inventorySubCategories).orderBy(inventorySubCategories.name);
+  }
+
+  async createInventorySubCategory(data: InsertInventorySubCategory): Promise<InventorySubCategory> {
+    const [created] = await db.insert(inventorySubCategories).values(data).returning();
+    return created;
+  }
+
+  async deleteInventorySubCategory(id: number): Promise<void> {
+    await db.delete(inventorySubCategories).where(eq(inventorySubCategories.id, id));
+  }
+
+  async getInventoryUnits(): Promise<InventoryUnit[]> {
+    return db.select().from(inventoryUnits).orderBy(inventoryUnits.name);
+  }
+
+  async createInventoryUnit(data: InsertInventoryUnit): Promise<InventoryUnit> {
+    const [created] = await db.insert(inventoryUnits).values(data).returning();
+    return created;
+  }
+
+  async getInventoryUnitByName(name: string): Promise<InventoryUnit | undefined> {
+    const [unit] = await db.select().from(inventoryUnits).where(eq(inventoryUnits.name, name));
+    return unit;
+  }
+
+  async deleteInventoryUnit(id: number): Promise<void> {
+    await db.delete(inventoryUnits).where(eq(inventoryUnits.id, id));
+  }
+
+  async getInventoryCategories(): Promise<InventoryCategory[]> {
+    return db.select().from(inventoryCategories).orderBy(inventoryCategories.name);
+  }
+
+  async createInventoryCategory(data: InsertInventoryCategory): Promise<InventoryCategory> {
+    const [created] = await db.insert(inventoryCategories).values(data).returning();
+    return created;
+  }
+
+  async getInventoryCategoryByName(name: string): Promise<InventoryCategory | undefined> {
+    const [category] = await db.select().from(inventoryCategories).where(eq(inventoryCategories.name, name));
+    return category;
+  }
+
+  async deleteInventoryCategory(id: number): Promise<void> {
+    await db.delete(inventoryCategories).where(eq(inventoryCategories.id, id));
+  }
+
+  async getInventoryProductTypes(): Promise<InventoryProductType[]> {
+    return db.select().from(inventoryProductTypes).orderBy(inventoryProductTypes.name);
+  }
+
+  async createInventoryProductType(data: InsertInventoryProductType): Promise<InventoryProductType> {
+    const [created] = await db.insert(inventoryProductTypes).values(data).returning();
+    return created;
+  }
+
+  async getInventoryProductTypeByName(name: string): Promise<InventoryProductType | undefined> {
+    const [productType] = await db.select().from(inventoryProductTypes).where(eq(inventoryProductTypes.name, name));
+    return productType;
+  }
+
+  async deleteInventoryProductType(id: number): Promise<void> {
+    await db.delete(inventoryProductTypes).where(eq(inventoryProductTypes.id, id));
   }
 
   async getExpenses(): Promise<Expense[]> {
@@ -564,20 +830,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLabReportsByPetId(petId: number): Promise<LabReport[]> {
-    return db.select().from(labReports).where(eq(labReports.petId, petId));
+    return db.select().from(labReports).where(eq(labReports.petId, petId)).orderBy(desc(labReports.id));
   }
 
   async createLabReport(report: InsertLabReport): Promise<LabReport> {
-    const [created] = await db.insert(labReports).values(report).returning();
+    const [created] = await db.insert(labReports).values(report as any).returning();
     return created;
   }
 
   async getAllLabReports(): Promise<LabReport[]> {
-    return db.select().from(labReports).orderBy(desc(labReports.date));
+    return db.select().from(labReports).orderBy(desc(labReports.id));
   }
 
   async updateLabReport(id: number, data: Partial<InsertLabReport>): Promise<LabReport | undefined> {
-    const [updated] = await db.update(labReports).set(data).where(eq(labReports.id, id)).returning();
+    const [updated] = await db.update(labReports).set(data as any).where(eq(labReports.id, id)).returning();
     return updated;
   }
 
@@ -620,8 +886,48 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPurchaseOrder(order: InsertPurchaseOrder): Promise<PurchaseOrder> {
-    const [created] = await db.insert(purchaseOrders).values(order).returning();
+    let num = order.orderNumber;
+    if (!num) {
+      num = await this.getAndIncrementNextPurchaseOrderNumber();
+    }
+    const [created] = await db.insert(purchaseOrders).values({ ...order, orderNumber: num }).returning();
     return created;
+  }
+
+  async getAndIncrementNextPurchaseOrderNumber(): Promise<string> {
+    return await db.transaction(async (tx) => {
+      const [setting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "next_purchase_order_number"))
+        .for("update");
+
+      const [prefixSetting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "purchase_order_prefix"));
+      const prefix = prefixSetting?.settingValue || "PO-";
+
+      let nextNum: number;
+      if (setting && setting.settingValue) {
+        nextNum = parseInt(setting.settingValue);
+      } else {
+        const result = await tx.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(purchaseOrders);
+        nextNum = (result[0]?.maxId || 0) + 1;
+      }
+
+      const formattedNumber = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      await tx
+        .insert(clinicSettings)
+        .values({ settingKey: "next_purchase_order_number", settingValue: String(nextNum + 1) })
+        .onConflictDoUpdate({
+          target: clinicSettings.settingKey,
+          set: { settingValue: String(nextNum + 1) },
+        });
+
+      return formattedNumber;
+    });
   }
 
   async updatePurchaseOrder(id: number, data: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder | undefined> {
@@ -645,6 +951,118 @@ export class DatabaseStorage implements IStorage {
 
   async deletePurchaseOrderItem(id: number): Promise<void> {
     await db.delete(purchaseOrderItems).where(eq(purchaseOrderItems.id, id));
+  }
+
+  // Purchases
+  async getPurchases(): Promise<Purchase[]> {
+    return db.select().from(purchases).orderBy(desc(purchases.id));
+  }
+
+  async getPurchase(id: number): Promise<Purchase | undefined> {
+    const [p] = await db.select().from(purchases).where(eq(purchases.id, id));
+    return p;
+  }
+
+  async createPurchase(data: InsertPurchase): Promise<Purchase> {
+    let num = data.purchaseNumber;
+    if (!num || num.startsWith("#TEMP-")) {
+      num = await this.getAndIncrementNextPurchaseNumber();
+    }
+    const [created] = await db.insert(purchases).values({ ...data, purchaseNumber: num }).returning();
+    return created;
+  }
+
+  async getAndIncrementNextPurchaseNumber(): Promise<string> {
+    return await db.transaction(async (tx) => {
+      const [setting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "next_purchase_number"))
+        .for("update");
+
+      const [prefixSetting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "purchase_invoice_prefix"));
+      const prefix = prefixSetting?.settingValue || "PUR-";
+
+      let nextNum: number;
+      if (setting && setting.settingValue) {
+        nextNum = parseInt(setting.settingValue);
+      } else {
+        const result = await tx.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(purchases);
+        nextNum = (result[0]?.maxId || 0) + 1;
+      }
+
+      const formattedNumber = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      await tx
+        .insert(clinicSettings)
+        .values({ settingKey: "next_purchase_number", settingValue: String(nextNum + 1) })
+        .onConflictDoUpdate({
+          target: clinicSettings.settingKey,
+          set: { settingValue: String(nextNum + 1) },
+        });
+
+      return formattedNumber;
+    });
+  }
+
+  async updatePurchase(id: number, data: Partial<InsertPurchase>): Promise<Purchase | undefined> {
+    const [updated] = await db.update(purchases).set(data).where(eq(purchases.id, id)).returning();
+    return updated;
+  }
+
+  async deletePurchase(id: number): Promise<void> {
+    await db.delete(purchaseItems).where(eq(purchaseItems.purchaseId, id));
+    await db.delete(purchases).where(eq(purchases.id, id));
+  }
+
+  async getPurchaseItems(purchaseId: number): Promise<PurchaseItem[]> {
+    return db.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId));
+  }
+
+  async createPurchaseItem(item: InsertPurchaseItem): Promise<PurchaseItem> {
+    const [created] = await db.insert(purchaseItems).values(item).returning();
+    return created;
+  }
+
+  async deletePurchaseItem(id: number): Promise<void> {
+    await db.delete(purchaseItems).where(eq(purchaseItems.id, id));
+  }
+
+  async deletePurchaseItemsByPurchase(purchaseId: number): Promise<void> {
+    await db.delete(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId));
+  }
+
+  async getNextPurchaseNumber(): Promise<string> {
+    const setting = await this.getClinicSetting("next_purchase_number");
+    const prefixSetting = await this.getClinicSetting("purchase_invoice_prefix");
+    const prefix = prefixSetting?.settingValue || "PUR-";
+    
+    let nextNum: number;
+    if (setting && setting.settingValue) {
+      nextNum = parseInt(setting.settingValue);
+    } else {
+      const [res] = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(purchases);
+      nextNum = (res?.maxId || 0) + 1;
+    }
+    return `${prefix}${String(nextNum).padStart(4, "0")}`;
+  }
+
+  async getNextPurchaseOrderNumber(): Promise<string> {
+    const setting = await this.getClinicSetting("next_purchase_order_number");
+    const prefixSetting = await this.getClinicSetting("purchase_order_prefix");
+    const prefix = prefixSetting?.settingValue || "PO-";
+    
+    let nextNum: number;
+    if (setting && setting.settingValue) {
+      nextNum = parseInt(setting.settingValue);
+    } else {
+      const [res] = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(purchaseOrders);
+      nextNum = (res?.maxId || 0) + 1;
+    }
+    return `${prefix}${String(nextNum).padStart(4, "0")}`;
   }
 
   // Low stock
@@ -806,8 +1224,48 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEstimate(est: InsertEstimate): Promise<Estimate> {
-    const [created] = await db.insert(estimates).values(est).returning();
+    let num = est.estimateNumber;
+    if (!num) {
+      num = await this.getAndIncrementNextEstimateNumber();
+    }
+    const [created] = await db.insert(estimates).values({ ...est, estimateNumber: num }).returning();
     return created;
+  }
+
+  async getAndIncrementNextEstimateNumber(): Promise<string> {
+    return await db.transaction(async (tx) => {
+      const [setting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "next_estimate_number"))
+        .for("update");
+
+      const [prefixSetting] = await tx
+        .select()
+        .from(clinicSettings)
+        .where(eq(clinicSettings.settingKey, "estimate_prefix"));
+      const prefix = prefixSetting?.settingValue || "EST-";
+
+      let nextNum: number;
+      if (setting && setting.settingValue) {
+        nextNum = parseInt(setting.settingValue);
+      } else {
+        const result = await tx.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(estimates);
+        nextNum = (result[0]?.maxId || 0) + 1;
+      }
+
+      const formattedNumber = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      await tx
+        .insert(clinicSettings)
+        .values({ settingKey: "next_estimate_number", settingValue: String(nextNum + 1) })
+        .onConflictDoUpdate({
+          target: clinicSettings.settingKey,
+          set: { settingValue: String(nextNum + 1) },
+        });
+
+      return formattedNumber;
+    });
   }
 
   async updateEstimate(id: number, data: Partial<InsertEstimate>): Promise<Estimate | undefined> {
@@ -821,9 +1279,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNextEstimateNumber(): Promise<string> {
-    const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(estimates);
-    const nextNum = (result[0]?.maxId || 0) + 1;
-    return `EST-${String(nextNum).padStart(4, "0")}`;
+    const setting = await this.getClinicSetting("next_estimate_number");
+    const prefixSetting = await this.getClinicSetting("estimate_prefix");
+    const prefix = prefixSetting?.settingValue || "EST-";
+    
+    let nextNum: number;
+    if (setting && setting.settingValue) {
+      nextNum = parseInt(setting.settingValue);
+    } else {
+      const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(estimates);
+      nextNum = (result[0]?.maxId || 0) + 1;
+    }
+    return `${prefix}${String(nextNum).padStart(4, "0")}`;
   }
 
   async getEstimateItems(estimateId: number): Promise<EstimateItem[]> {
@@ -837,6 +1304,163 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEstimateItemsByEstimate(estimateId: number): Promise<void> {
     await db.delete(estimateItems).where(eq(estimateItems.estimateId, estimateId));
+  }
+
+  // Blood Smear Pathogens
+  async getBloodSmearPathogens(speciesName?: string): Promise<BloodSmearPathogen[]> {
+    if (speciesName) {
+      return db.select().from(bloodSmearPathogens).where(ilike(bloodSmearPathogens.species, speciesName)).orderBy(bloodSmearPathogens.name);
+    }
+    return db.select().from(bloodSmearPathogens).orderBy(bloodSmearPathogens.species, bloodSmearPathogens.name);
+  }
+
+  async createBloodSmearPathogen(pathogen: InsertBloodSmearPathogen): Promise<BloodSmearPathogen> {
+    const [created] = await db.insert(bloodSmearPathogens).values(pathogen).returning();
+    return created;
+  }
+
+  async updateBloodSmearPathogen(id: number, data: Partial<InsertBloodSmearPathogen>): Promise<BloodSmearPathogen | undefined> {
+    const [updated] = await db.update(bloodSmearPathogens).set(data).where(eq(bloodSmearPathogens.id, id)).returning();
+    return updated;
+  }
+
+  async deleteBloodSmearPathogen(id: number): Promise<void> {
+    await db.delete(bloodSmearPathogens).where(eq(bloodSmearPathogens.id, id));
+  }
+
+  async getTaxCategories(): Promise<TaxCategory[]> {
+    return db.select().from(taxCategories).orderBy(taxCategories.name);
+  }
+
+  async createTaxCategory(data: InsertTaxCategory): Promise<TaxCategory> {
+    const [created] = await db.insert(taxCategories).values(data).returning();
+    return created;
+  }
+
+  async updateTaxCategory(id: number, data: Partial<InsertTaxCategory>): Promise<TaxCategory | undefined> {
+    const [updated] = await db.update(taxCategories).set(data).where(eq(taxCategories.id, id)).returning();
+    return updated;
+  }
+
+  async deleteTaxCategory(id: number): Promise<void> {
+    await db.delete(taxCategories).where(eq(taxCategories.id, id));
+  }
+
+  async getExpenseCategories(): Promise<ExpenseCategory[]> {
+    return await db.select().from(expenseCategories).orderBy(expenseCategories.category);
+  }
+
+  async createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory> {
+    const [cat] = await db.insert(expenseCategories).values(data).returning();
+    return cat;
+  }
+
+  async updateExpenseCategory(id: number, data: Partial<InsertExpenseCategory>): Promise<ExpenseCategory | undefined> {
+    const [cat] = await db.update(expenseCategories).set(data).where(eq(expenseCategories.id, id)).returning();
+    return cat;
+  }
+
+  async deleteExpenseCategory(id: number): Promise<void> {
+    await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+  }
+
+  // General Ledger
+  async getLedgerEntries(filters?: { startDate?: string; endDate?: string; type?: string; search?: string }): Promise<LedgerEntry[]> {
+    let query = db.select().from(ledgerEntries).$dynamic();
+    
+    if (filters) {
+      const conditions = [];
+      if (filters.startDate) conditions.push(gte(ledgerEntries.date, filters.startDate));
+      if (filters.endDate) conditions.push(lte(ledgerEntries.date, filters.endDate));
+      if (filters.type && filters.type !== "all") conditions.push(eq(ledgerEntries.type, filters.type));
+      if (filters.search) {
+        conditions.push(
+          sql`${ledgerEntries.party} ILIKE ${'%' + filters.search + '%'} OR ${ledgerEntries.description} ILIKE ${'%' + filters.search + '%'} OR ${ledgerEntries.voucherNumber} ILIKE ${'%' + filters.search + '%'}`
+        );
+      }
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
+      }
+    }
+    
+    return await query.orderBy(desc(ledgerEntries.date), desc(ledgerEntries.id));
+  }
+
+  async createLedgerEntry(entry: InsertLedgerEntry): Promise<LedgerEntry> {
+    const [created] = await db.insert(ledgerEntries).values(entry).returning();
+    return created;
+  }
+
+  async deleteLedgerEntry(id: number): Promise<void> {
+    await db.delete(ledgerEntries).where(eq(ledgerEntries.id, id));
+  }
+
+  async getLedgerEntryByReference(type: string, id: number): Promise<LedgerEntry | undefined> {
+    const [entry] = await db.select().from(ledgerEntries).where(
+      and(eq(ledgerEntries.referenceType, type), eq(ledgerEntries.referenceId, id))
+    );
+    return entry;
+  }
+
+  async getNextVoucherNumber(type: string): Promise<string> {
+    const prefix = type === "sale" ? "SL-" : type === "purchase" ? "PU-" : "EXP";
+    const result = await db.select({ maxId: sql<number>`COALESCE(MAX(id), 0)` }).from(ledgerEntries);
+    const nextNum = (result[0]?.maxId || 0) + 1;
+    return `${prefix}${String(nextNum).padStart(4, "0")}`;
+  }
+
+  async getRevenueBreakdown(startDate: string, endDate: string): Promise<any> {
+    const ipOp = await db.execute(sql`
+      SELECT 
+        i.invoice_type as label, 
+        SUM(i.total::numeric) as value
+      FROM invoices i
+      WHERE i.date >= ${startDate} AND i.date <= ${endDate} 
+        AND i.status != 'cancelled'
+      GROUP BY i.invoice_type
+    `);
+
+    const itemTypes = await db.execute(sql`
+      SELECT 
+        CASE WHEN ii.fee_id IS NOT NULL THEN 'service' ELSE 'inventory' END as label,
+        SUM(ii.total::numeric) as value
+      FROM invoice_items ii
+      JOIN invoices i ON ii.invoice_id = i.id
+      WHERE i.date >= ${startDate} AND i.date <= ${endDate} 
+        AND i.status != 'cancelled'
+      GROUP BY 1
+    `);
+
+    const serviceCats = await db.execute(sql`
+      SELECT 
+        COALESCE(fs.category, 'Uncategorized Service') as label,
+        SUM(ii.total::numeric) as value
+      FROM invoice_items ii
+      JOIN invoices i ON ii.invoice_id = i.id
+      JOIN fee_structures fs ON ii.fee_id = fs.id
+      WHERE i.date >= ${startDate} AND i.date <= ${endDate} 
+        AND i.status != 'cancelled'
+      GROUP BY 1
+    `);
+
+    const inventoryCats = await db.execute(sql`
+      SELECT 
+        COALESCE(itm.category, 'Uncategorized Item') as label,
+        SUM(ii.total::numeric) as value
+      FROM invoice_items ii
+      JOIN invoices i ON ii.invoice_id = i.id
+      JOIN inventory_items itm ON ii.inventory_id = itm.id
+      WHERE i.date >= ${startDate} AND i.date <= ${endDate} 
+        AND i.status != 'cancelled'
+      GROUP BY 1
+    `);
+
+    return {
+      ipOp: ipOp.rows.map(r => ({ label: String(r.label).toUpperCase(), value: Number(r.value) })),
+      itemTypes: itemTypes.rows.map(r => ({ label: String(r.label).charAt(0).toUpperCase() + String(r.label).slice(1), value: Number(r.value) })),
+      serviceCats: serviceCats.rows.map(r => ({ label: String(r.label), value: Number(r.value) })),
+      inventoryCats: inventoryCats.rows.map(r => ({ label: String(r.label), value: Number(r.value) }))
+    };
   }
 }
 

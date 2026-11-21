@@ -1,0 +1,20 @@
+﻿11f7d15 Fix age months display and storage
+f927983 Fix: role dropdown now loads all roles dynamically from database
+c8a4e7d Fix: new users with empty permissions[] now correctly inherit role permissions
+ccadbf6 Update VPS script: GitHub pull method
+66747d3 Make only First Name required for owner; Email and Last Name optional
+7fc2ad5 Add comprehensive invoice design and preview tools for administrators
+500cba3 Published your App
+a3c71ee Saved progress at the end of the loop
+848135c Allow receptionists to mark invoices as paid and improve dialog close behavior
+d4f8638 Published your App
+fc94b02 Saved progress at the end of the loop
+b90af95 Add a consult button to the doctor dashboard for viewing patient records
+6f96421 Saved progress at the end of the loop
+4685e66 Add ability to capture and view patient photos in full screen
+abcf5a4 Published your App
+ff5e312 Saved progress at the end of the loop
+b0d0803 Add ability to upload and manage clinic logo and background images
+7094939 Add functionality to upload and manage clinic images
+78ae80b Improve login reliability and session management for production
+7d53451 Published your App

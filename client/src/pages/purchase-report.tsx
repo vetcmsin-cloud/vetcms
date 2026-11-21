@@ -10,10 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export default function PurchaseReportPage() {
-    const { data: orders, isLoading } = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"] });
+    const { data: orders, isLoading: ordersLoading } = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"] });
+    const { data: purchases, isLoading: purchasesLoading } = useQuery<any[]>({ queryKey: ["/api/purchases"] });
     const { data: suppliers } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
+
+    const isLoading = ordersLoading || purchasesLoading;
 
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
@@ -33,20 +37,34 @@ export default function PurchaseReportPage() {
         });
     }, [orders, dateFrom, dateTo]);
 
-    const receivedOrders = filteredOrders.filter(o => o.status === "received");
+    const filteredPurchases = useMemo(() => {
+        if (!purchases) return [];
+        return purchases.filter(p => {
+            if (dateFrom && p.date < dateFrom) return false;
+            if (dateTo && p.date > dateTo) return false;
+            return true;
+        });
+    }, [purchases, dateFrom, dateTo]);
 
     const stats = useMemo(() => {
-        const totalSpend = receivedOrders.reduce((s, o) => s + parseFloat(String(o.totalAmount)), 0);
+        const totalSpend = filteredPurchases.reduce((s, p) => s + parseFloat(String(p.totalAmount)), 0);
         const bySupplier: Record<number, { name: string; count: number; total: number }> = {};
-        receivedOrders.forEach(o => {
-            if (!bySupplier[o.supplierId]) {
-                bySupplier[o.supplierId] = { name: supplierMap[o.supplierId] || `Supplier #${o.supplierId}`, count: 0, total: 0 };
+        
+        filteredPurchases.forEach(p => {
+            if (!bySupplier[p.supplierId]) {
+                bySupplier[p.supplierId] = { name: supplierMap[p.supplierId] || `Supplier #${p.supplierId}`, count: 0, total: 0 };
             }
-            bySupplier[o.supplierId].count++;
-            bySupplier[o.supplierId].total += parseFloat(String(o.totalAmount));
+            bySupplier[p.supplierId].count++;
+            bySupplier[p.supplierId].total += parseFloat(String(p.totalAmount));
         });
-        return { totalSpend, totalOrders: filteredOrders.length, receivedCount: receivedOrders.length, bySupplier };
-    }, [receivedOrders, filteredOrders, supplierMap]);
+
+        return { 
+            totalSpend, 
+            totalOrders: filteredOrders.length, 
+            purchaseCount: filteredPurchases.length, 
+            bySupplier 
+        };
+    }, [filteredPurchases, filteredOrders, supplierMap]);
 
     if (isLoading) {
         return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-border" /></div>;
@@ -94,8 +112,8 @@ export default function PurchaseReportPage() {
                     <CardContent className="p-5">
                         <div className="flex items-center justify-between">
                             <div className="flex flex-col gap-1">
-                                <span className="text-xs font-medium text-muted-foreground">Received Orders</span>
-                                <span className="text-2xl font-bold text-green-600">{stats.receivedCount}</span>
+                                <span className="text-xs font-medium text-muted-foreground">Successful Purchases</span>
+                                <span className="text-2xl font-bold text-green-600">{stats.purchaseCount}</span>
                             </div>
                             <Calendar className="w-5 h-5 text-green-500" />
                         </div>
@@ -116,13 +134,13 @@ export default function PurchaseReportPage() {
 
             {/* Supplier Breakdown */}
             <Card>
-                <CardHeader><CardTitle className="text-lg">Supplier-wise Purchase Summary</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-lg">Expenses by Supplier (Actual Purchases)</CardTitle></CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Supplier</TableHead>
-                                <TableHead className="text-right">Orders</TableHead>
+                                <TableHead className="text-right">Purchases</TableHead>
                                 <TableHead className="text-right">Total Amount</TableHead>
                                 <TableHead className="text-right">% Share</TableHead>
                             </TableRow>
@@ -134,8 +152,8 @@ export default function PurchaseReportPage() {
                                     <TableRow key={idx}>
                                         <TableCell className="font-medium">{s.name}</TableCell>
                                         <TableCell className="text-right">{s.count}</TableCell>
-                                        <TableCell className="text-right font-medium">₹{s.total.toFixed(2)}</TableCell>
-                                        <TableCell className="text-right text-muted-foreground">
+                                        <TableCell className="text-right font-medium text-green-700">₹{s.total.toFixed(2)}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground font-mono text-xs">
                                             {stats.totalSpend > 0 ? ((s.total / stats.totalSpend) * 100).toFixed(1) : 0}%
                                         </TableCell>
                                     </TableRow>
@@ -148,44 +166,69 @@ export default function PurchaseReportPage() {
                 </CardContent>
             </Card>
 
-            {/* Order History Table */}
-            <Card>
-                <CardHeader><CardTitle className="text-lg">Purchase Orders</CardTitle></CardHeader>
-                <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Order #</TableHead>
-                                <TableHead>Supplier</TableHead>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
-                                <TableHead>Received Date</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredOrders.length === 0 ? (
-                                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground h-16">No orders found.</TableCell></TableRow>
-                            ) : (
-                                filteredOrders.sort((a, b) => b.date.localeCompare(a.date)).map(o => (
-                                    <TableRow key={o.id}>
-                                        <TableCell className="font-mono text-xs font-medium">{o.orderNumber}</TableCell>
-                                        <TableCell>{supplierMap[o.supplierId] || "-"}</TableCell>
-                                        <TableCell>{o.date}</TableCell>
-                                        <TableCell>
-                                            {o.status === "received" ? <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">Received</Badge> :
-                                                o.status === "pending" ? <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">Pending</Badge> :
-                                                    <Badge variant="destructive">{o.status}</Badge>}
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium">₹{parseFloat(String(o.totalAmount)).toFixed(2)}</TableCell>
-                                        <TableCell className="text-muted-foreground">{o.receivedDate || "-"}</TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Purchase History */}
+                <Card>
+                    <CardHeader className="bg-slate-50/50"><CardTitle className="text-sm font-black uppercase tracking-widest text-slate-500">Actual Purchases (Invoices)</CardTitle></CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Invoice #</TableHead>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredPurchases.length === 0 ? (
+                                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-16">No purchases found.</TableCell></TableRow>
+                                ) : (
+                                    filteredPurchases.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map(p => (
+                                        <TableRow key={p.id}>
+                                            <TableCell className="font-mono text-[10px] font-bold text-primary">{p.purchaseNumber}</TableCell>
+                                            <TableCell className="text-xs">{p.date}</TableCell>
+                                            <TableCell className="text-right font-bold text-xs">₹{parseFloat(String(p.totalAmount)).toFixed(2)}</TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+
+                {/* PO History */}
+                <Card>
+                    <CardHeader className="bg-slate-50/50"><CardTitle className="text-sm font-black uppercase tracking-widest text-slate-500">Purchase Orders (PO Status)</CardTitle></CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Order #</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredOrders.length === 0 ? (
+                                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground h-16">No orders found.</TableCell></TableRow>
+                                ) : (
+                                    filteredOrders.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10).map(o => (
+                                        <TableRow key={o.id}>
+                                            <TableCell className="font-mono text-[10px] font-medium">{o.orderNumber}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className={cn("text-[8px] font-bold uppercase", o.status === 'received' ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700")}>
+                                                    {o.status === 'received' ? 'Invoiced' : 'Pending'}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-xs">₹{parseFloat(String(o.totalAmount)).toFixed(2)}</TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 }

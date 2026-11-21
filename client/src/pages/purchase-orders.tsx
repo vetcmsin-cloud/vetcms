@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { type PurchaseOrder, type Supplier, type InventoryItem } from "@shared/schema";
+import { openNewPurchaseOrderTerminal } from "@/components/NewPurchaseOrderTerminal";
 import { apiRequest } from "@/lib/queryClient";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -16,7 +17,7 @@ import {
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Search, Trash2, PackageCheck, ShoppingCart, Eye } from "lucide-react";
+import { Loader2, Plus, Search, Trash2, PackageCheck, ShoppingCart, Eye, ReceiptText } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -25,7 +26,6 @@ export default function PurchaseOrdersPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState("");
-    const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [viewPO, setViewPO] = useState<any>(null);
 
     const { data: orders, isLoading } = useQuery<PurchaseOrder[]>({
@@ -45,14 +45,20 @@ export default function PurchaseOrdersPage() {
         (supplierMap[o.supplierId] || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const receiveMutation = useMutation({
+    const convertMutation = useMutation({
         mutationFn: async (id: number) => {
-            await apiRequest("POST", `/api/purchase-orders/${id}/receive`);
+            const res = await apiRequest("POST", `/api/purchase-orders/${id}/convert-to-purchase`);
+            if (!res.ok) throw new Error("Failed to convert to purchase invoice");
+            return await res.json();
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/purchases"] });
             queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-            toast({ title: "Order received!", description: "Inventory quantities have been updated." });
+            queryClient.invalidateQueries({ queryKey: ["/api/purchases/next-number"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/accounts/summary"] });
+            toast({ title: "Converted to Purchase Invoice!", description: "Stock has been updated and a purchase record created." });
         },
         onError: (error: Error) => {
             toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -74,10 +80,10 @@ export default function PurchaseOrdersPage() {
 
     const statusBadge = (status: string) => {
         switch (status) {
-            case "pending": return <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30">Pending</Badge>;
-            case "received": return <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30">Received</Badge>;
-            case "cancelled": return <Badge variant="destructive">Cancelled</Badge>;
-            default: return <Badge variant="secondary">{status}</Badge>;
+            case "pending": return <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 font-bold uppercase text-[9px]">Ordered</Badge>;
+            case "received": return <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/30 font-bold uppercase text-[9px]">Invoiced</Badge>;
+            case "cancelled": return <Badge variant="destructive" className="font-bold uppercase text-[9px]">Cancelled</Badge>;
+            default: return <Badge variant="secondary" className="font-bold uppercase text-[9px]">{status}</Badge>;
         }
     };
 
@@ -99,7 +105,7 @@ export default function PurchaseOrdersPage() {
                     </p>
                 </div>
                 {hasPermission("inventory.manage") && (
-                    <Button onClick={() => setIsCreateOpen(true)}>
+                    <Button onClick={() => openNewPurchaseOrderTerminal()}>
                         <Plus className="w-4 h-4 mr-2" />
                         Create Order
                     </Button>
@@ -146,16 +152,21 @@ export default function PurchaseOrdersPage() {
                                     <TableCell className="text-muted-foreground">{o.receivedDate || "-"}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={async () => {
-                                                const res = await apiRequest("GET", `/api/purchase-orders/${o.id}`);
-                                                const data = await res.json();
-                                                setViewPO(data);
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                                                openNewPurchaseOrderTerminal(o.id);
                                             }}>
                                                 <Eye className="w-4 h-4" />
                                             </Button>
                                             {o.status === "pending" && hasPermission("inventory.manage") && (
-                                                <Button size="sm" variant="default" className="h-8 gap-1" onClick={() => receiveMutation.mutate(o.id)}>
-                                                    <PackageCheck className="w-3.5 h-3.5" /> Receive
+                                                <Button 
+                                                    size="sm" 
+                                                    variant="default" 
+                                                    className="h-8 gap-1 bg-primary hover:bg-primary/90 rounded-lg text-[11px] font-bold" 
+                                                    disabled={convertMutation.isPending}
+                                                    onClick={() => convertMutation.mutate(o.id)}
+                                                >
+                                                    {convertMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ReceiptText className="w-3.5 h-3.5" />}
+                                                    Convert to Invoice
                                                 </Button>
                                             )}
                                             {o.status !== "received" && hasPermission("inventory.manage") && (
@@ -173,196 +184,6 @@ export default function PurchaseOrdersPage() {
                 </Table>
             </div>
 
-            {/* Create PO Dialog */}
-            <CreatePODialog open={isCreateOpen} onOpenChange={setIsCreateOpen} suppliers={suppliers || []} inventoryItems={inventoryItems || []} />
-
-            {/* View PO Dialog */}
-            {viewPO && (
-                <Dialog open={!!viewPO} onOpenChange={() => setViewPO(null)}>
-                    <DialogContent className="sm:max-w-[600px]">
-                        <DialogHeader><DialogTitle>Purchase Order: {viewPO.orderNumber}</DialogTitle></DialogHeader>
-                        <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div><span className="text-muted-foreground">Supplier:</span> {supplierMap[viewPO.supplierId] || "-"}</div>
-                                <div><span className="text-muted-foreground">Date:</span> {viewPO.date}</div>
-                                <div><span className="text-muted-foreground">Status:</span> {viewPO.status}</div>
-                                <div><span className="text-muted-foreground">Total:</span> ₹{parseFloat(String(viewPO.totalAmount)).toFixed(2)}</div>
-                            </div>
-                            {viewPO.notes && <p className="text-sm text-muted-foreground">{viewPO.notes}</p>}
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Item</TableHead>
-                                        <TableHead>Qty</TableHead>
-                                        <TableHead>Unit Price</TableHead>
-                                        <TableHead>Total</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {viewPO.items?.map((item: any) => {
-                                        const inv = inventoryItems?.find(i => i.id === item.inventoryItemId);
-                                        return (
-                                            <TableRow key={item.id}>
-                                                <TableCell>{inv?.name || `Item #${item.inventoryItemId}`}</TableCell>
-                                                <TableCell>{item.quantity}</TableCell>
-                                                <TableCell>₹{parseFloat(String(item.unitPrice)).toFixed(2)}</TableCell>
-                                                <TableCell>₹{parseFloat(String(item.total)).toFixed(2)}</TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-            )}
         </div>
-    );
-}
-
-function CreatePODialog({
-    open, onOpenChange, suppliers, inventoryItems,
-}: {
-    open: boolean; onOpenChange: (o: boolean) => void; suppliers: Supplier[]; inventoryItems: InventoryItem[];
-}) {
-    const { toast } = useToast();
-    const queryClient = useQueryClient();
-    const [supplierId, setSupplierId] = useState<string>("");
-    const [notes, setNotes] = useState("");
-    const [items, setItems] = useState<{ inventoryItemId: number; quantity: number; unitPrice: number }[]>([]);
-
-    useEffect(() => {
-        if (open) {
-            setSupplierId("");
-            setNotes("");
-            setItems([]);
-        }
-    }, [open]);
-
-    const addItem = () => {
-        setItems([...items, { inventoryItemId: 0, quantity: 1, unitPrice: 0 }]);
-    };
-
-    const removeItem = (idx: number) => {
-        setItems(items.filter((_, i) => i !== idx));
-    };
-
-    const updateItem = (idx: number, field: string, value: any) => {
-        const updated = [...items];
-        (updated[idx] as any)[field] = value;
-        setItems(updated);
-    };
-
-    const totalAmount = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
-
-    const createMutation = useMutation({
-        mutationFn: async () => {
-            const today = format(new Date(), "yyyy-MM-dd");
-            const orderNumber = `PO-${today.replace(/-/g, "")}-${String(Date.now()).slice(-4)}`;
-            await apiRequest("POST", "/api/purchase-orders", {
-                orderNumber,
-                supplierId: parseInt(supplierId),
-                date: today,
-                status: "pending",
-                totalAmount: totalAmount.toFixed(2),
-                notes,
-                items: items.filter(i => i.inventoryItemId > 0).map(i => ({
-                    inventoryItemId: i.inventoryItemId,
-                    quantity: i.quantity,
-                    unitPrice: i.unitPrice.toFixed(2),
-                    total: (i.quantity * i.unitPrice).toFixed(2),
-                })),
-            });
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-            toast({ title: "Purchase order created", description: "New purchase order has been created." });
-            onOpenChange(false);
-        },
-        onError: (error: Error) => {
-            toast({ title: "Error", description: error.message, variant: "destructive" });
-        },
-    });
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
-                <DialogHeader><DialogTitle>Create Purchase Order</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-sm font-medium">Supplier *</label>
-                            <Select value={supplierId} onValueChange={setSupplierId}>
-                                <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
-                                <SelectContent>
-                                    {suppliers.map(s => (
-                                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div>
-                            <label className="text-sm font-medium">Notes</label>
-                            <Input placeholder="Optional notes" value={notes} onChange={e => setNotes(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium">Order Items</label>
-                            <Button type="button" size="sm" variant="outline" onClick={addItem}>
-                                <Plus className="w-3 h-3 mr-1" /> Add Item
-                            </Button>
-                        </div>
-                        {items.map((item, idx) => (
-                            <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                                <div className="col-span-5">
-                                    <Select value={String(item.inventoryItemId)} onValueChange={v => {
-                                        const id = parseInt(v);
-                                        const invItem = inventoryItems.find(i => i.id === id);
-                                        updateItem(idx, "inventoryItemId", id);
-                                        if (invItem) {
-                                            updateItem(idx, "unitPrice", parseFloat(String(invItem.purchasePrice)) || 0);
-                                        }
-                                    }}>
-                                        <SelectTrigger><SelectValue placeholder="Select item" /></SelectTrigger>
-                                        <SelectContent>
-                                            {inventoryItems.map(i => (
-                                                <SelectItem key={i.id} value={String(i.id)}>{i.name} ({i.sku})</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="col-span-2">
-                                    <Input type="number" placeholder="Qty" value={item.quantity} onChange={e => updateItem(idx, "quantity", parseInt(e.target.value) || 0)} />
-                                </div>
-                                <div className="col-span-3">
-                                    <Input type="number" step="0.01" placeholder="Price" value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} />
-                                </div>
-                                <div className="col-span-1 text-right text-sm font-medium pt-2">₹{(item.quantity * item.unitPrice).toFixed(0)}</div>
-                                <div className="col-span-1">
-                                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(idx)}>
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-                        {items.length > 0 && (
-                            <div className="text-right font-semibold text-lg border-t pt-2">
-                                Total: ₹{totalAmount.toFixed(2)}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-4">
-                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button disabled={!supplierId || items.length === 0 || createMutation.isPending} onClick={() => createMutation.mutate()}>
-                            {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                            Create Order
-                        </Button>
-                    </div>
-                </div>
-            </DialogContent>
-        </Dialog>
     );
 }

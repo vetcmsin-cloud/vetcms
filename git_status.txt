@@ -1,0 +1,205 @@
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   client/src/App.tsx
+	modified:   client/src/components/add-appointment-dialog.tsx
+	modified:   client/src/components/app-sidebar.tsx
+	modified:   client/src/components/document-designer/DocumentDesigner.tsx
+	modified:   client/src/components/document-designer/LabReportRenderer.tsx
+	modified:   client/src/components/document-designer/lab-report-fields.ts
+	modified:   client/src/components/document-designer/medical-report-fields.ts
+	modified:   client/src/components/document-designer/types.ts
+	modified:   client/src/components/edit-appointment-dialog.tsx
+	modified:   client/src/components/invoice-designer/InvoiceDesigner.tsx
+	modified:   client/src/components/invoice-designer/InvoiceRenderer.tsx
+	modified:   client/src/components/invoice-designer/InvoiceSections.tsx
+	modified:   client/src/components/lab-reports-tab.tsx
+	modified:   client/src/components/lab-settings.tsx
+	modified:   client/src/components/patient-chart.tsx
+	modified:   client/src/components/ui/scroll-area.tsx
+	modified:   client/src/components/ui/table.tsx
+	modified:   client/src/index.css
+	modified:   client/src/lib/queryClient.ts
+	modified:   client/src/lib/utils.ts
+	modified:   client/src/main.tsx
+	modified:   client/src/pages/accounts.tsx
+	modified:   client/src/pages/activity-log.tsx
+	modified:   client/src/pages/admin-backup.tsx
+	modified:   client/src/pages/admin-billing.tsx
+	modified:   client/src/pages/admin-dashboard.tsx
+	modified:   client/src/pages/admin-settings.tsx
+	modified:   client/src/pages/appointments.tsx
+	modified:   client/src/pages/design-studio-page.tsx
+	modified:   client/src/pages/inventory.tsx
+	modified:   client/src/pages/lab.tsx
+	modified:   client/src/pages/owners.tsx
+	modified:   client/src/pages/patients.tsx
+	modified:   client/src/pages/records.tsx
+	modified:   client/src/pages/stock-report.tsx
+	modified:   deploy_vps.zip
+	modified:   package-lock.json
+	modified:   package.json
+	modified:   script/create_update_zip.ps1
+	modified:   server/db.ts
+	modified:   server/hl7-listener.ts
+	modified:   server/index.ts
+	modified:   server/routes.ts
+	modified:   server/seed.ts
+	modified:   server/static.ts
+	modified:   server/storage.ts
+	modified:   server/vite.ts
+	modified:   shared/schema.ts
+	modified:   tsconfig.json
+	modified:   update_vps.sh
+	modified:   update_vps.zip
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	billing_diff.txt
+	billing_old.txt
+	check_dates.ts
+	check_db_exists.ts
+	check_inv.ts
+	check_settings.ts
+	cleanup_ip_op.ps1
+	client/src/components/blood-smear-builder.tsx
+	client/src/components/inventory-import.tsx
+	client/src/components/inventory-settings.tsx
+	client/src/components/medical-settings.tsx
+	client/src/components/wet-film-builder.tsx
+	client/src/lib/medical-templates.ts
+	client/src/pages/admin-financial-year.tsx
+	client/src/pages/admin-inventory-settings.tsx
+	client/src/pages/admin-medical-settings.tsx
+	client/src/pages/admin-vouchers.tsx
+	client/src/pages/customer-visit-report.tsx
+	client/src/pages/reports-dashboard.tsx
+	cookies.txt
+	debug_server.log
+	deploy_standalone.sh
+	extracted_lab.js
+	fix-timestamps.js
+	fix.js
+	fix.py
+	fix2.js
+	fix2_result.txt
+	fix3.js
+	fix_all_tables_mar08.sql
+	fix_invoices.sql
+	fix_invoices.ts
+	fix_owner.sql
+	fix_perms.sql
+	fix_print.ps1
+	fix_print2.ps1
+	fix_result.txt
+	fix_species.ts
+	git_log.txt
+	git_log_temp.txt
+	git_log_temp2.txt
+	git_status.txt
+	list_species.ts
+	migrate_db.sql
+	migrate_inv.ts
+	migrate_mar08.sql
+	old_print_lines.txt
+	petpoint_update_accounts_fix.zip
+	petpoint_update_lab_invoice_spacing.zip
+	petpoint_update_labsmear.zip
+	petpoint_update_mar08.zip
+	petpoint_update_mar08_fix.zip
+	petpoint_update_zz_lab_invoice.zip
+	petpoint_update_zz_vps_lab_invoice.zip
+	petpoint_update_zz_vps_lab_layout.zip
+	petpoint_update_zz_vps_lab_layout_fix.zip
+	prev_lab.tsx
+	previous_lab.tsx
+	previous_lab_filtered.txt
+	rec_lab.txt
+	script/backfill_ledger.ts
+	script/check_tests.ts
+	script/cleanup_duplicates.ts
+	script/clear_product_types.ts
+	script/create_tax_table.ts
+	script/import_ref_ranges.ts
+	server/routes.ts.bak
+	server/routes/
+	server/uploads/1773359842390-su7mfd.jpg
+	server/uploads/1773448014998-41mcpz.jpg
+	server/uploads/1773448186257-8jswqd.jpg
+	server/uploads/1773448204080-u1gj6w.png
+	server/uploads/file-1774530445268-580767088.jpg
+	server/uploads/file-1774530501343-87437253.jpg
+	server/uploads/file-1774530610577-237045476.jpg
+	server/uploads/file-1774778377926-679543928.jpg
+	server/uploads/file-1774968781048-648572638.jpg
+	server_log.txt
+	server_start.log
+	shared/check_db.ts
+	shared/seed_pathogens.ts
+	test-download.xlsx
+	test-template.xlsx
+	test.xlsx
+	test10.xlsx
+	test11.xlsx
+	test12.xlsx
+	test13.xlsx
+	test14.xlsx
+	test16.xlsx
+	test17.xlsx
+	test18.xlsx
+	test19.xlsx
+	test2.xlsx
+	test20.xlsx
+	test21.xlsx
+	test22.xlsx
+	test23.xlsx
+	test24.xlsx
+	test25.xlsx
+	test26.xlsx
+	test27.xlsx
+	test28.xlsx
+	test29.xlsx
+	test3.xlsx
+	test30.xlsx
+	test31.xlsx
+	test4.xlsx
+	test5.xlsx
+	test6.xlsx
+	test69.xlsx
+	test7.xlsx
+	test8.xlsx
+	test9.xlsx
+	test_db.ts
+	test_db_conn.ts
+	test_extract/
+	test_import.ts
+	test_pg_explicit.ts
+	test_port.ts
+	test_rev.ts
+	test_routes.ts
+	test_vite_setup.ts
+	tests.json
+	tmp/
+	ts_errors.txt
+	ts_errs.log
+	tsc-errors.txt
+	tsc-out.txt
+	tsc_billing_errors.txt
+	tsc_errors.txt
+	tsc_errors_final.txt
+	tsc_final.txt
+	tsc_final_check.txt
+	tsc_final_check_v2.txt
+	tsc_full_errors.txt
+	tsc_out.txt
+	tsc_revert_check.txt
+	update_species_names.ts
+	update_standalone.sh
+	verify.txt
+	verify_numbering.ts
+
+no changes added to commit (use "git add" and/or "git commit -a")

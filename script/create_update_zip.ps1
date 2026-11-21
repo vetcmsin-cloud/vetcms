@@ -68,7 +68,8 @@ $singles = @(
     "package-lock.json",
     "ecosystem.config.cjs",
     "drizzle.config.ts",
-    "update.sh"
+    "update.sh",
+    "update_standalone.sh"
 )
 
 foreach ($name in $singles) {
@@ -106,10 +107,13 @@ Write-Host "=== Next Steps ===" -ForegroundColor Cyan
 Write-Host "  1. Upload to VPS:"
 Write-Host "     scp ""$zipOut"" root@<vps-ip>:/root/"
 Write-Host ""
-Write-Host "  2. SSH into your VPS and run:"
+Write-Host "  2. FOR MAIN CLINIC (/var/www/vet-clinic):"
 Write-Host "     cd /root && unzip -o update_vps.zip update.sh && chmod +x update.sh && ./update.sh"
 Write-Host ""
-Write-Host "  The update.sh will:"
+Write-Host "  3. FOR STANDALONE (/var/www/vetcms_standalone):"
+Write-Host "     cd /root && unzip -o update_vps.zip update_standalone.sh && chmod +x update_standalone.sh && ./update_standalone.sh"
+Write-Host ""
+Write-Host "  The update script will:"
 Write-Host "    - Replace dist/ and shared/ with the new build"
 Write-Host "    - Keep your .env, database, and uploaded files UNTOUCHED"
 Write-Host "    - Run 'npm ci' to sync any new npm dependencies"

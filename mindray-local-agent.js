@@ -33,20 +33,28 @@ console.log(`Listening for Mindray on local port: ${LOCAL_PORT}\n`);
 // Forward data to VPS
 function sendToVPS(hl7String) {
     const payload = JSON.stringify({ hl7Data: hl7String });
-    const isHttps = VPS_URL.startsWith('https');
+    
+    // Normalize VPS_URL to prevent double slashes and parsing issues
+    const normalizedVpsUrl = VPS_URL.replace(/\/$/, '');
+    const urlObj = new URL(normalizedVpsUrl + '/api/mindray/webhook');
+    const isHttps = urlObj.protocol === 'https:';
     const client = isHttps ? https : http;
-    const urlObj = new URL(VPS_URL + '/api/mindray/webhook');
 
-    const req = client.request({
-        hostname: urlObj.hostname,
-        port: urlObj.port,
-        path: urlObj.pathname,
+    const options = {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(payload)
         }
-    }, (res) => {
+    };
+
+    // Support disabling strict SSL check (useful for self-signed certificates in clinic environments)
+    if (isHttps && (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' || process.env.IGNORE_SSL === 'true')) {
+        options.rejectUnauthorized = false;
+        console.log('[Warning] Connecting to VPS with strict SSL verification disabled');
+    }
+
+    const req = client.request(urlObj, options, (res) => {
         let responseBody = '';
         res.on('data', (chunk) => responseBody += chunk);
         res.on('end', () => {
@@ -60,6 +68,10 @@ function sendToVPS(hl7String) {
 
     req.on('error', (e) => {
         console.error(`[Error] Could not connect to VPS: ${e.message}`);
+        console.error(`Please verify that:`);
+        console.error(`  1. The server at ${VPS_URL} is online and running.`);
+        console.error(`  2. The network connection is active.`);
+        console.error(`  3. If your server is local, check the IP address. If it uses a self-signed HTTPS certificate, run with: env IGNORE_SSL=true node mindray-local-agent.js`);
     });
 
     req.write(payload);
@@ -124,6 +136,8 @@ server.on('error', (err) => {
     console.error(`[Error] TCP Server Error: ${err.message}`);
     if (err.code === 'EADDRINUSE') {
         console.error(`Port ${LOCAL_PORT} is already in use by another program.`);
+        console.error(`NOTE: If you are running the PetPointPro server LOCALLY on this same PC, the built-in HL7 listener is already running on port ${LOCAL_PORT}.`);
+        console.error(`You do NOT need to run this local agent script! The machine can connect directly to this PC's local IP address.`);
     }
 });
 

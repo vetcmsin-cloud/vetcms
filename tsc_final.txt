@@ -1,0 +1,15 @@
+﻿src/pages/inventory.tsx(272,46): error TS2304: Cannot find name 'TaxCategory'.
+src/pages/inventory.tsx(734,20): error TS2304: Cannot find name 'TaxCategory'.
+src/pages/inventory.tsx(1007,67): error TS2322: Type '{ type: "number"; step: string; onChange: (...event: any[]) => void; onBlur: Noop; value: string | null | undefined; disabled?: boolean | undefined; name: "minSellingPrice"; ref: RefCallBack; }' is not assignable to type 'Omit<DetailedHTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement>, "ref">'.
+  Types of property 'value' are incompatible.
+    Type 'string | null | undefined' is not assignable to type 'string | number | readonly string[] | undefined'.
+      Type 'null' is not assignable to type 'string | number | readonly string[] | undefined'.
+../server/routes.ts(426,46): error TS2339: Property 'value' does not exist on type '{ id: number; settingKey: string; settingValue: string; }'.
+../server/routes.ts(561,48): error TS2339: Property 'value' does not exist on type '{ id: number; settingKey: string; settingValue: string; }'.
+../server/routes.ts(884,21): error TS2345: Argument of type 'false' is not assignable to parameter of type 'string | string[] | undefined'.
+../server/routes.ts(921,23): error TS2345: Argument of type 'false' is not assignable to parameter of type 'string | string[] | undefined'.
+../server/routes/inventory.ts(95,128): error TS2345: Argument of type 'string | null | undefined' is not assignable to parameter of type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+../server/routes/inventory.ts(142,54): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+../server/routes/inventory.ts(198,23): error TS2345: Argument of type 'false' is not assignable to parameter of type 'string | string[] | undefined'.

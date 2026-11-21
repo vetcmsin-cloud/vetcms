@@ -9,7 +9,8 @@ import { Link, useParams } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ImageUploader } from "@/components/ui/image-uploader";
-
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { InvoiceDesigner } from "@/components/invoice-designer/InvoiceDesigner";
 import type { InvoiceSection } from "@/components/invoice-designer/types";
 import { DocumentDesigner } from "@/components/document-designer/DocumentDesigner";
@@ -28,8 +29,8 @@ type ClinicSettings = Record<string, string>;
 
 const DESIGNER_META: Record<string, { title: string; subtitle: string; color: string }> = {
     invoice: {
-        title: "Invoice Design Studio",
-        subtitle: "Complete control over your invoice layout, colors, fields, and styling.",
+        title: "Sales Invoice Design Studio",
+        subtitle: "Complete control over your sales invoice layout, colors, fields, and styling.",
         color: "text-primary",
     },
     "lab-report": {
@@ -41,6 +42,16 @@ const DESIGNER_META: Record<string, { title: string; subtitle: string; color: st
         title: "Medical Report Design Studio",
         subtitle: "Drag-and-drop designer for medical report templates — SOAP notes, diagnosis, prescriptions.",
         color: "text-purple-600",
+    },
+    "purchase-invoice": {
+        title: "Purchase Invoice Design Studio",
+        subtitle: "Complete control over your purchase invoice layout, colors, fields, and styling.",
+        color: "text-orange-600",
+    },
+    "purchase-order": {
+        title: "Purchase Order Design Studio",
+        subtitle: "Complete control over your purchase order layout, colors, fields, and styling.",
+        color: "text-indigo-600",
     },
 };
 
@@ -57,6 +68,8 @@ const CUSTOM_DEFAULT_LAYOUT: InvoiceSection[] = [
 // Mapping: designer type → setting key for letterhead background
 const LETTERHEAD_KEYS: Record<string, string> = {
     invoice: "invoiceBackgroundImage",
+    "purchase-invoice": "purchaseInvoiceBackgroundImage",
+    "purchase-order": "purchaseOrderBackgroundImage",
     "lab-report": "labReportBackgroundImage",
     "medical-report": "medicalReportBackgroundImage",
 };
@@ -79,12 +92,26 @@ export default function DesignStudioPage() {
     }
 
     const [invoicePaperSize, setInvoicePaperSize] = useState<"a4" | "a5_portrait" | "a5_landscape">("a4");
+    const [printDesign, setPrintDesign] = useState<"print1" | "print2" | "print3">("print1");
 
     // Dynamic key for invoice background
     let letterheadKey = "invoiceBackgroundImage";
     if (designerType === "invoice") {
-        if (invoicePaperSize === "a5_portrait") letterheadKey = "invoiceBackgroundImage_a5";
-        else if (invoicePaperSize === "a5_landscape") letterheadKey = "invoiceBackgroundImage_a5_landscape";
+        let baseBg = "invoiceBackgroundImage";
+        if (printDesign === "print2") baseBg = "invoiceBackgroundImage_print2";
+        if (printDesign === "print3") baseBg = "invoiceBackgroundImage_print3";
+
+        if (invoicePaperSize === "a5_portrait") letterheadKey = `${baseBg}_a5`;
+        else if (invoicePaperSize === "a5_landscape") letterheadKey = `${baseBg}_a5_landscape`;
+        else letterheadKey = baseBg;
+    } else if (designerType === "purchase-invoice") {
+        if (invoicePaperSize === "a5_portrait") letterheadKey = "purchaseInvoiceBackgroundImage_a5";
+        else if (invoicePaperSize === "a5_landscape") letterheadKey = "purchaseInvoiceBackgroundImage_a5_landscape";
+        else letterheadKey = "purchaseInvoiceBackgroundImage";
+    } else if (designerType === "purchase-order") {
+        if (invoicePaperSize === "a5_portrait") letterheadKey = "purchaseOrderBackgroundImage_a5";
+        else if (invoicePaperSize === "a5_landscape") letterheadKey = "purchaseOrderBackgroundImage_a5_landscape";
+        else letterheadKey = "purchaseOrderBackgroundImage";
     } else {
         letterheadKey = LETTERHEAD_KEYS[designerType] || "invoiceBackgroundImage";
     }
@@ -99,16 +126,41 @@ export default function DesignStudioPage() {
     const [labReportLayout, setLabReportLayout] = useState<DocumentSection[] | undefined>(undefined);
     const [medicalReportLayout, setMedicalReportLayout] = useState<DocumentSection[] | undefined>(undefined);
 
-    // Local state for image uploads
     const [letterheadUrl, setLetterheadUrl] = useState("");
     const [paidStampUrl, setPaidStampUrl] = useState("");
+    
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const typeParam = params.get("type");
+        if (typeParam && (LAB_REPORT_TYPES as readonly string[]).includes(typeParam)) {
+            setLabReportType(typeParam as LabReportType);
+        }
+    }, []);
+    
+    // Local state for debouncing textual input changes
+    const [localValues, setLocalValues] = useState<Record<string, string>>({});
+
+    const handleLocalChange = (key: string, val: string) => {
+        setLocalValues(prev => ({ ...prev, [key]: val }));
+    };
+
+    const handleBlur = (key: string, val: string) => {
+        if (settings && val !== settings[key]) {
+            saveMutation.mutate({ [key]: val });
+        }
+    };
 
     useEffect(() => {
         if (settings) {
             // Handle Invoice Layout
             let invLayoutKey = "invoiceLayout";
-            if (invoicePaperSize === "a5_portrait") invLayoutKey = "invoiceLayout_a5";
-            else if (invoicePaperSize === "a5_landscape") invLayoutKey = "invoiceLayout_a5_landscape";
+            if (designerType === "invoice") {
+                if (printDesign === "print2") invLayoutKey = "invoiceLayout_print2";
+                if (printDesign === "print3") invLayoutKey = "invoiceLayout_print3";
+            }
+
+            if (invoicePaperSize === "a5_portrait") invLayoutKey += "_a5";
+            else if (invoicePaperSize === "a5_landscape") invLayoutKey += "_a5_landscape";
 
             if (settings[invLayoutKey]) {
                 try {
@@ -119,7 +171,20 @@ export default function DesignStudioPage() {
                     setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
                 }
             } else {
-                setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                // Determine fallback to print1
+                let fallbackKey = "invoiceLayout";
+                if (invoicePaperSize === "a5_portrait") fallbackKey += "_a5";
+                else if (invoicePaperSize === "a5_landscape") fallbackKey += "_a5_landscape";
+                
+                if (settings[fallbackKey]) {
+                    try {
+                        setInvoiceLayout(JSON.parse(settings[fallbackKey]));
+                    } catch (e) {
+                        setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                    }
+                } else {
+                    setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                }
             }
             // Handle Lab Report Layout based on selected type
             const labKey = labReportType === DEFAULT_LAB_REPORT_TYPE ? "labReportLayout" : `labReportLayout_${labReportType}`;
@@ -130,6 +195,24 @@ export default function DesignStudioPage() {
                     console.error(`Failed to parse lab report layout for ${labReportType}`, e);
                     setLabReportLayout([]);
                 }
+            } else if (labReportType === "Ultrasonography") {
+                setLabReportLayout([
+                    { id: "hdr_customer_details_usg", type: "panel", isVisible: true, label: "Customer / Patient Details 1", panelKey: "customer_details_1", x: 40, y: 170, width: 714, height: 160 },
+                    { id: "body_usg_panel", type: "panel", isVisible: true, label: "USG / Ultrasonography Findings", panelKey: "usg_panel", position: "body", x: 40, y: 340, width: 714, height: 580 },
+                    { id: "body_impression_panel", type: "panel", isVisible: true, label: "Impression", panelKey: "impression_panel", position: "body", x: 40, y: 930, width: 714, height: 80 },
+                    { id: "body_suggestion_panel", type: "panel", isVisible: true, label: "Suggestion", panelKey: "suggestion_panel", position: "body", x: 40, y: 1020, width: 714, height: 80 },
+                    { id: "body_notes_usg", type: "field", field: "notes", isVisible: true, label: "Notes", position: "body", x: 40, y: 1110, width: 714, height: 80 },
+                ] as any);
+            } else if (labReportType === "Reproductive") {
+                // Pre-populate Reproductive canvas with all relevant panels so user can see & customise them
+                setLabReportLayout([
+                    { id: "hdr_customer_details", type: "panel", isVisible: true, label: "Customer / Patient Details 1", panelKey: "customer_details_1", x: 40, y: 170, width: 714, height: 200 },
+                    { id: "body_evc_panel", type: "panel", isVisible: true, label: "Vaginal Cytology (EVC)", panelKey: "evc_panel", x: 40, y: 240, width: 714, height: 320, position: "body" },
+                    { id: "body_progesterone_panel", type: "panel", isVisible: true, label: "Progesterone Assay", panelKey: "progesterone_panel", x: 40, y: 580, width: 714, height: 250, position: "body" },
+                    { id: "body_summary_field", type: "field", field: "summary", isVisible: true, label: "Summary / Conclusion", position: "body", x: 40, y: 840, width: 714, height: 120 },
+                    { id: "body_cycle_timeline_panel", type: "panel", isVisible: true, label: "Cycle Timeline", panelKey: "cycle_timeline_panel", x: 40, y: 970, width: 714, height: 160, position: "body" },
+                    { id: "body_notes_field", type: "field", field: "notes", isVisible: true, label: "Notes", position: "body", x: 40, y: 1140, width: 714, height: 80 },
+                ] as any);
             } else {
                 setLabReportLayout([]);
             }
@@ -145,18 +228,63 @@ export default function DesignStudioPage() {
                 setMedicalReportLayout([]);
             }
 
+            // Handle Purchase Layout
+            if (designerType === "purchase-invoice" || designerType === "purchase-order") {
+                const baseKey = designerType === "purchase-order" ? "purchaseOrderLayout" : "purchaseInvoiceLayout";
+                let purLayoutKey = baseKey;
+                if (invoicePaperSize === "a5_portrait") purLayoutKey = `${baseKey}_a5`;
+                else if (invoicePaperSize === "a5_landscape") purLayoutKey = `${baseKey}_a5_landscape`;
+
+                if (settings[purLayoutKey]) {
+                    try {
+                        setInvoiceLayout(JSON.parse(settings[purLayoutKey]));
+                    } catch (e) {
+                        setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                    }
+                } else {
+                    // Falls back to sales invoice layout if purchase is empty
+                    let invLayoutKey = "invoiceLayout";
+                    if (invoicePaperSize === "a5_portrait") invLayoutKey = "invoiceLayout_a5";
+                    else if (invoicePaperSize === "a5_landscape") invLayoutKey = "invoiceLayout_a5_landscape";
+
+                    if (settings[invLayoutKey]) {
+                        try {
+                            setInvoiceLayout(JSON.parse(settings[invLayoutKey]));
+                        } catch (e) {
+                            setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                        }
+                    } else {
+                        setInvoiceLayout(CUSTOM_DEFAULT_LAYOUT);
+                    }
+                }
+            }
+
             // Load images
-            setLetterheadUrl(settings[letterheadKey] || "");
+            let loadedLetterheadUrl = settings[letterheadKey];
+            // Only fall back to Print 1's letterhead if we're actually on Print 1
+            // (or a non-invoice designer type). For Print 2/3, show blank if not set.
+            if (!loadedLetterheadUrl && designerType === "invoice" && printDesign === "print1") {
+                let fallbackBgKey = "invoiceBackgroundImage";
+                if (invoicePaperSize === "a5_portrait") fallbackBgKey += "_a5";
+                else if (invoicePaperSize === "a5_landscape") fallbackBgKey += "_a5_landscape";
+                loadedLetterheadUrl = settings[fallbackBgKey];
+            }
+            setLetterheadUrl(loadedLetterheadUrl || "");
             setPaidStampUrl(settings.invoicePaidStampImage || "");
         }
-    }, [settings, letterheadKey, labReportType, invoicePaperSize]);
+    }, [settings, letterheadKey, labReportType, invoicePaperSize, printDesign, designerType]);
+
+    // Determine the correct layout settings key for the active printDesign
+    const currentLayoutKey = designerType === "invoice"
+        ? (printDesign === "print2" ? "invoiceLayout_print2" : printDesign === "print3" ? "invoiceLayout_print3" : "invoiceLayout")
+        : "invoiceLayout";
 
     const currentSettings = useMemo(() => ({
         ...(settings || {}),
         [letterheadKey]: letterheadUrl,
         invoicePaidStampImage: paidStampUrl,
-        ...(invoiceLayout ? { invoiceLayout: JSON.stringify(invoiceLayout) } : {}),
-    }), [settings, invoiceLayout, letterheadUrl, paidStampUrl, letterheadKey]);
+        ...(invoiceLayout ? { [currentLayoutKey]: JSON.stringify(invoiceLayout) } : {}),
+    }), [settings, invoiceLayout, letterheadUrl, paidStampUrl, letterheadKey, currentLayoutKey]);
 
     const saveMutation = useMutation({
         mutationFn: async (data: Record<string, string>) => {
@@ -236,6 +364,36 @@ export default function DesignStudioPage() {
                                 />
                             </div>
                         )}
+                        {designerType === "invoice" && (
+                            <div className="space-y-2">
+                                <Label>Row Spacing (px)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="50"
+                                    placeholder="Default: 10"
+                                    value={localValues["invoiceRowGap"] ?? settings?.invoiceRowGap ?? ""}
+                                    onChange={(e) => handleLocalChange("invoiceRowGap", e.target.value)}
+                                    onBlur={(e) => handleBlur("invoiceRowGap", e.target.value)}
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Adjust vertical spacing between invoice table items.</p>
+                            </div>
+                        )}
+                        {designerType === "lab-report" && (
+                            <div className="space-y-2">
+                                <Label>Row Spacing (px)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="50"
+                                    placeholder="Default: 6"
+                                    value={localValues["labReportRowGap"] ?? settings?.labReportRowGap ?? ""}
+                                    onChange={(e) => handleLocalChange("labReportRowGap", e.target.value)}
+                                    onBlur={(e) => handleBlur("labReportRowGap", e.target.value)}
+                                />
+                                <p className="text-xs text-muted-foreground mt-1">Adjust vertical spacing between test results.</p>
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -243,7 +401,7 @@ export default function DesignStudioPage() {
             <Separator />
 
             {/* Designer */}
-            {designerType === "invoice" && (
+            {(designerType === "invoice" || designerType === "purchase-invoice" || designerType === "purchase-order") && (
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border">
                         <div className="flex flex-col gap-1">
@@ -263,38 +421,86 @@ export default function DesignStudioPage() {
                                 <SelectItem value="a5_landscape">A5 (Landscape)</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        {designerType === "invoice" && (
+                            <>
+                                <div className="flex flex-col gap-1 ml-4 border-l pl-4">
+                                    <span className="text-sm font-medium">Print Design</span>
+                                    <span className="text-xs text-muted-foreground">Select custom design version</span>
+                                </div>
+                                <Select
+                                    value={printDesign}
+                                    onValueChange={(v) => setPrintDesign(v as "print1" | "print2" | "print3")}
+                                >
+                                    <SelectTrigger className="w-[180px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="print1">Print 1 (Default)</SelectItem>
+                                        <SelectItem value="print2">Print 2</SelectItem>
+                                        <SelectItem value="print3">Print 3</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                
+                                <Button
+                                    variant={(settings?.activePrintDesign || "print1") === printDesign ? "secondary" : "outline"}
+                                    disabled={(settings?.activePrintDesign || "print1") === printDesign || saveMutation.isPending}
+                                    onClick={() => saveMutation.mutate({ activePrintDesign: printDesign })}
+                                    className="ml-2"
+                                >
+                                    {(settings?.activePrintDesign || "print1") === printDesign ? "Active Design" : "Set Active"}
+                                </Button>
+                            </>
+                        )}
+
                         <Button
                             variant={
-                                (settings?.printerType || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize)
+                                (settings?.[designerType === "invoice" && printDesign === "print2" ? "printerType_print2" : designerType === "invoice" && printDesign === "print3" ? "printerType_print3" : "printerType"] || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize)
                                     ? "secondary"
                                     : "default"
                             }
                             disabled={
-                                (settings?.printerType || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize) ||
+                                (settings?.[designerType === "invoice" && printDesign === "print2" ? "printerType_print2" : designerType === "invoice" && printDesign === "print3" ? "printerType_print3" : "printerType"] || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize) ||
                                 saveMutation.isPending
                             }
                             onClick={() => {
                                 const newType = invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize;
-                                saveMutation.mutate({ printerType: newType });
+                                const key = designerType === "invoice" && printDesign === "print2" ? "printerType_print2" : designerType === "invoice" && printDesign === "print3" ? "printerType_print3" : "printerType";
+                                saveMutation.mutate({ [key]: newType });
                             }}
                         >
-                            {(settings?.printerType || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize)
+                            {(settings?.[designerType === "invoice" && printDesign === "print2" ? "printerType_print2" : designerType === "invoice" && printDesign === "print3" ? "printerType_print3" : "printerType"] || "a4") === (invoicePaperSize === "a5_portrait" ? "a5" : invoicePaperSize)
                                 ? "Current Default"
                                 : "Set as Default"}
                         </Button>
                     </div>
 
                     <InvoiceDesigner
-                        key={invoicePaperSize}
+                        key={`${invoicePaperSize}-${printDesign}`}
+                        designerType={designerType as any}
                         canvasPaperSize={invoicePaperSize}
+                        printDesign={printDesign}
                         initialLayout={invoiceLayout}
                         layout={invoiceLayout}
                         onLayoutChange={setInvoiceLayout}
                         onSave={(layout) => {
                             setInvoiceLayout(layout);
                             let key = "invoiceLayout";
-                            if (invoicePaperSize === "a5_portrait") key = "invoiceLayout_a5";
-                            else if (invoicePaperSize === "a5_landscape") key = "invoiceLayout_a5_landscape";
+                            if (designerType === "purchase-invoice") {
+                                key = "purchaseInvoiceLayout";
+                                if (invoicePaperSize === "a5_portrait") key = "purchaseInvoiceLayout_a5";
+                                else if (invoicePaperSize === "a5_landscape") key = "purchaseInvoiceLayout_a5_landscape";
+                            } else if (designerType === "purchase-order") {
+                                key = "purchaseOrderLayout";
+                                if (invoicePaperSize === "a5_portrait") key = "purchaseOrderLayout_a5";
+                                else if (invoicePaperSize === "a5_landscape") key = "purchaseOrderLayout_a5_landscape";
+                            } else {
+                                if (printDesign === "print2") key = "invoiceLayout_print2";
+                                else if (printDesign === "print3") key = "invoiceLayout_print3";
+
+                                if (invoicePaperSize === "a5_portrait") key += "_a5";
+                                else if (invoicePaperSize === "a5_landscape") key += "_a5_landscape";
+                            }
                             saveMutation.mutate({ [key]: JSON.stringify(layout) });
                         }}
                         onSettingsChange={(updates) => saveMutation.mutate(updates)}

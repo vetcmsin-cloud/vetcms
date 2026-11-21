@@ -3,13 +3,9 @@ import session from "express-session";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import connectPgSimple from "connect-pg-simple";
-import pg from "pg";
+import { pool } from "./db";
 
 const PgSession = connectPgSimple(session);
-
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 export function setupAuth(app: any) {
   app.use(
@@ -24,7 +20,7 @@ export function setupAuth(app: any) {
       cookie: {
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.COOKIE_SECURE === "true" ? true : "auto",
         sameSite: "lax",
       },
     })
@@ -65,6 +61,76 @@ export function requireRole(...roles: string[]) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Permission cache — avoids 1-2 DB round-trips on EVERY API call.
+// Cache is keyed by userId and expires after 60 seconds.
+// Call invalidatePermissionCache(userId) whenever a user or role is modified.
+// ---------------------------------------------------------------------------
+interface CachedPermissions {
+  role: string;
+  perms: string[];
+  ts: number;
+}
+const permCache = new Map<number, CachedPermissions>();
+const PERM_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export function invalidatePermissionCache(userId?: number) {
+  if (userId !== undefined) {
+    permCache.delete(userId);
+    userCache.delete(userId); // also bust user data cache
+  } else {
+    // Invalidate all — used when a role's permissions change
+    permCache.clear();
+    userCache.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User data cache — avoids re-fetching the same user row on every /api/auth/me
+// ---------------------------------------------------------------------------
+interface CachedUser {
+  user: any;
+  role: any;
+  ts: number;
+}
+const userCache = new Map<number, CachedUser>();
+const USER_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+export async function getCachedUserWithRole(userId: number, storage: any): Promise<{ user: any; role: any } | null> {
+  const now = Date.now();
+  const cached = userCache.get(userId);
+  if (cached && now - cached.ts < USER_CACHE_TTL_MS) {
+    return { user: cached.user, role: cached.role };
+  }
+  const user = await storage.getUser(userId);
+  if (!user) return null;
+  const role = await storage.getRoleByName(user.role);
+  userCache.set(userId, { user, role, ts: now });
+  return { user, role };
+}
+
+async function getEffectivePermissions(userId: number): Promise<{ role: string; perms: string[] }> {
+  const now = Date.now();
+  const cached = permCache.get(userId);
+  if (cached && now - cached.ts < PERM_CACHE_TTL_MS) {
+    return { role: cached.role, perms: cached.perms };
+  }
+
+  const user = await storage.getUser(userId);
+  if (!user) return { role: "", perms: [] };
+
+  let perms: string[];
+  if (user.permissions !== null && user.permissions !== undefined && Array.isArray(user.permissions)) {
+    perms = user.permissions;
+  } else {
+    const role = await storage.getRoleByName(user.role);
+    perms = (role?.permissions as string[]) || [];
+  }
+
+  permCache.set(userId, { role: user.role, perms, ts: now });
+  return { role: user.role, perms };
+}
+
 export function requirePermission(...permissions: string[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const userId = (req.session as any).userId;
@@ -73,25 +139,16 @@ export function requirePermission(...permissions: string[]) {
     }
 
     try {
-      const user = await storage.getUser(userId);
-      if (!user) return res.status(401).json({ message: "User not found" });
+      const { role, perms } = await getEffectivePermissions(userId);
 
-      let effectivePerms: string[] = [];
-      // Only use user-level permissions if explicitly set (even if empty)
-      // A null/undefined value means "no override" — fall back to role permissions
-      if (user.permissions !== null && user.permissions !== undefined && Array.isArray(user.permissions)) {
-        effectivePerms = user.permissions;
-      } else {
-        // Fall back to the role's permissions
-        const role = await storage.getRoleByName(user.role);
-        effectivePerms = (role?.permissions as string[]) || [];
-        // Superadmin always has full access regardless of role config
-        if (user.role === "superadmin" && effectivePerms.length === 0) {
-          return next(); // superadmin bypasses all permission checks
-        }
+      if (!role) return res.status(401).json({ message: "User not found" });
+
+      // Superadmin always has full access — bypass all permission checks
+      if (role === "superadmin") {
+        return next();
       }
 
-      const hasPermission = permissions.some((p) => effectivePerms.includes(p));
+      const hasPermission = permissions.some((p) => perms.includes(p));
       if (!hasPermission) {
         return res.status(403).json({ message: "Forbidden: Insufficient permissions" });
       }

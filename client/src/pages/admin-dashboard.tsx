@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -15,30 +16,87 @@ import {
   Users,
   Clock,
   FlaskConical,
+  Stethoscope,
+  Eye,
+  EyeOff,
+  TrendingUp,
+  CalendarDays,
+  Package,
+  Calendar,
+  Wallet,
+  Ticket,
+  ClipboardList,
+  Globe,
 } from "lucide-react";
 
-// ... existing StatCard component ...
+// ── Blur-toggle Amount ─────────────────────────────────────────────────────────
+function BlurAmount({
+  value,
+  loading,
+  revealed,
+  onReveal,
+}: {
+  value: string;
+  loading?: boolean;
+  revealed: boolean;
+  onReveal: () => void;
+}) {
+  if (loading) return <Skeleton className="h-7 w-24" />;
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onReveal(); }}
+      className="flex items-center gap-1.5 group focus:outline-none"
+      title={revealed ? "Click to hide" : "Click to reveal"}
+    >
+      <span
+        className={`text-2xl font-bold tracking-tight transition-all duration-300 select-none ${revealed ? "" : "blur-[6px] pointer-events-none"
+          }`}
+      >
+        {value}
+      </span>
+      <span className="opacity-0 group-hover:opacity-60 transition-opacity text-muted-foreground">
+        {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+      </span>
+    </button>
+  );
+}
 
+// ── Stat Card ─────────────────────────────────────────────────────────────────
 function StatCard({
   title,
   value,
   icon: Icon,
   description,
   loading,
+  isAmount,
+  revealed,
+  onReveal,
+  accent,
 }: {
   title: string;
   value: string | number;
   icon: React.ElementType;
   description?: string;
   loading?: boolean;
+  isAmount?: boolean;
+  revealed?: boolean;
+  onReveal?: () => void;
+  accent?: string; // tailwind color class for border-left
 }) {
   return (
-    <Card>
+    <Card className={`overflow-hidden ${accent ? `border-l-4 ${accent}` : ""}`}>
       <CardContent className="p-5">
         <div className="flex items-center justify-between gap-2">
           <div className="flex flex-col gap-1">
             <span className="text-xs font-medium text-muted-foreground">{title}</span>
-            {loading ? (
+            {isAmount && revealed !== undefined && onReveal ? (
+              <BlurAmount
+                value={String(value)}
+                loading={loading}
+                revealed={revealed}
+                onReveal={onReveal}
+              />
+            ) : loading ? (
               <Skeleton className="h-7 w-16" />
             ) : (
               <span className="text-2xl font-bold tracking-tight">{value}</span>
@@ -106,27 +164,88 @@ const adminCards = [
     url: "/admin/lab-settings",
     testId: "card-lab-settings",
   },
+  {
+    title: "Accounts Settings",
+    description: "Configure Accounts module settings and Expense Categories",
+    icon: Wallet,
+    url: "/admin/accounts-settings",
+    testId: "card-accounts-settings",
+  },
+  {
+    title: "Medical Settings",
+    description: "Create and manage treatment plan templates for SOAP note consultations",
+    icon: Stethoscope,
+    url: "/admin/medical-settings",
+    testId: "card-medical-settings",
+  },
+  {
+    title: "Inventory Settings",
+    description: "Manage product units, categories and sub-categories for inventory",
+    icon: Package,
+    url: "/admin/inventory-settings",
+    testId: "card-inventory-settings",
+  },
+  {
+    title: "Financial Year",
+    description: "Set and manage the active financial year for accounting",
+    icon: Calendar,
+    url: "/admin/financial-year",
+    testId: "card-financial-year",
+  },
+  {
+    title: "Vouchers",
+    description: "Configure expense and payment voucher templates",
+    icon: Ticket,
+    url: "/admin/vouchers",
+    testId: "card-vouchers",
+  },
+  {
+    title: "Users",
+    description: "Create, edit, and manage system user accounts",
+    icon: Users,
+    url: "/admin/users",
+    testId: "card-users",
+  },
+  {
+    title: "Activity Log",
+    description: "View detailed audit logs of all user actions",
+    icon: ClipboardList,
+    url: "/admin/activity-log",
+    testId: "card-activity-log",
+  },
+  {
+    title: "General Settings",
+    description: "Timezone and regional preferences for the entire application",
+    icon: Globe,
+    url: "/admin/general-settings",
+    testId: "card-general-settings",
+  },
 ];
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+
+  // Each revenue amount has its own reveal state, starts blurred
+  const [todayRevealed, setTodayRevealed] = useState(false);
+  const [totalRevealed, setTotalRevealed] = useState(false);
+
   const { data: stats, isLoading } = useQuery<{
     totalRevenue: number;
+    todayRevenue: number;
     totalUsers: number;
     pendingInvoices: number;
   }>({
     queryKey: ["/api/admin/stats"],
   });
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
       maximumFractionDigits: 0,
     }).format(amount);
-  };
 
-  const visibleCards = adminCards.filter(card => {
+  const visibleCards = adminCards.filter((card) => {
     if (card.title === "Data Management") {
       return user?.role === "superadmin";
     }
@@ -145,14 +264,34 @@ export default function AdminDashboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Stat Cards — revenue amounts blurred by default */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Today's Revenue — shown first */}
+        <StatCard
+          title="Today's Revenue"
+          value={formatCurrency(stats?.todayRevenue || 0)}
+          icon={CalendarDays}
+          loading={isLoading}
+          description="Paid invoices today"
+          isAmount
+          revealed={todayRevealed}
+          onReveal={() => setTodayRevealed((v) => !v)}
+          accent="border-l-amber-400"
+        />
+
+        {/* Total Revenue */}
         <StatCard
           title="Total Revenue"
           value={formatCurrency(stats?.totalRevenue || 0)}
-          icon={IndianRupee}
+          icon={TrendingUp}
           loading={isLoading}
-          description="Total from paid invoices"
+          description="All-time from paid invoices"
+          isAmount
+          revealed={totalRevealed}
+          onReveal={() => setTotalRevealed((v) => !v)}
+          accent="border-l-emerald-500"
         />
+
         <StatCard
           title="Total Users"
           value={stats?.totalUsers || 0}
@@ -160,6 +299,7 @@ export default function AdminDashboard() {
           loading={isLoading}
           description="Registered system users"
         />
+
         <StatCard
           title="Pending Invoices"
           value={stats?.pendingInvoices || 0}
@@ -168,6 +308,12 @@ export default function AdminDashboard() {
           description="Invoices awaiting payment"
         />
       </div>
+
+      {/* Hint text */}
+      <p className="text-[11px] text-muted-foreground flex items-center gap-1 -mt-3">
+        <Eye className="w-3 h-3" />
+        Revenue amounts are hidden for privacy — click to reveal.
+      </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleCards.map((card) => (

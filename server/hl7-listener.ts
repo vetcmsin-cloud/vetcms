@@ -342,7 +342,7 @@ export function startHL7Listener(port: number = 5100): net.Server {
         }
     });
 
-    listenerServer.listen(port, '0.0.0.0', () => {
+    listenerServer.listen(port, '::', () => {
         isListening = true;
         console.log(`[HL7] 🔬 Mindray BC-20s listener started on port ${port}`);
         console.log(`[HL7] Configure your Mindray BC-20s to send data to this IP on port ${port}`);

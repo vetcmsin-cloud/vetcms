@@ -36,9 +36,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CameraCapture } from "@/components/camera-capture";
-import { Plus, Search, Camera, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Search, Camera, Check, ChevronsUpDown, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, formatWhatsAppLink } from "@/lib/utils";
+import { FaWhatsapp } from "react-icons/fa";
 import type { Pet, Owner } from "@shared/schema";
 
 const appointmentTypes = [
@@ -65,7 +66,7 @@ function getCurrentTime() {
     return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
-export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[]; owners: Owner[]; defaultDate?: Date }) {
+export function AddAppointmentDialog({ pets: propPets, owners: propOwners, defaultDate }: { pets?: Pet[]; owners?: Owner[]; defaultDate?: Date }) {
     const [open, setOpen] = useState(false);
     const { toast } = useToast();
     const [patientSearch, setPatientSearch] = useState("");
@@ -81,12 +82,29 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
     const [useExistingOwner, setUseExistingOwner] = useState(false);
     const [selectedOwner, setSelectedOwner] = useState<Owner | null>(null);
     const [comboboxOpen, setComboboxOpen] = useState(false);
+    const [successData, setSuccessData] = useState<{
+        ownerName: string;
+        petName: string;
+        phone: string;
+        date: string;
+        time: string;
+        type: string;
+        id: number;
+    } | null>(null);
 
-    // Fetch owners for the combobox (only when needed)
-    const { data: allOwners } = useQuery<Owner[]>({
-        queryKey: ["/api/owners"],
-        enabled: useExistingOwner && showRegister,
+    // Fetch all pets and owners only when the dialog is open
+    const { data: allPets = [] } = useQuery<Pet[]>({
+        queryKey: ["/api/pets"],
+        enabled: open,
     });
+
+    const { data: allOwners = [] } = useQuery<Owner[]>({
+        queryKey: ["/api/owners"],
+        enabled: open,
+    });
+
+    const pets = open ? allPets : (propPets || []);
+    const owners = open ? allOwners : (propOwners || []);
 
     // Format default date to YYYY-MM-DD
     const initialDate = defaultDate ? format(defaultDate, "yyyy-MM-dd") : getCurrentDate();
@@ -100,9 +118,10 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
 
     const defaultNewPatient = {
         name: "",
-        species: "Dog",
+        species: "Canine",
         breed: "",
         age: "",
+        ageMonths: "",
         weight: "",
         gender: "Male",
         color: "",
@@ -133,17 +152,24 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
         setCapturedFile(null);
         setUseExistingOwner(false);
         setSelectedOwner(null);
+        setSuccessData(null);
     };
 
     const searchResults = patientSearch.trim().length >= 2
         ? pets.filter((p) => {
             const q = patientSearch.toLowerCase();
-            const owner = owners.find((o) => o.id === p.ownerId);
+            const owner = owners?.find((o) => o.id === p.ownerId);
             return (
                 p.name.toLowerCase().includes(q) ||
-                (owner?.phone && owner.phone.includes(patientSearch.trim()))
+                p.species.toLowerCase().includes(q) ||
+                (p.breed || "").toLowerCase().includes(q) ||
+                (owner?.firstName || "").toLowerCase().includes(q) ||
+                (owner?.lastName || "").toLowerCase().includes(q) ||
+                (owner?.phone || "").toLowerCase().includes(q)
             );
-        }).slice(0, 8)
+        })
+        .sort((a, b) => b.id - a.id)
+        .slice(0, 50)
         : [];
 
     const selectedPet = pets.find((p) => p.id === selectedPetId);
@@ -162,10 +188,19 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
             });
             return res.json();
         },
-        onSuccess: () => {
+        onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
-            setOpen(false);
-            resetDialog();
+            queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
+            const owner = owners.find(o => o.id === selectedPet!.ownerId);
+            setSuccessData({
+                ownerName: owner?.firstName || "Client",
+                petName: selectedPet?.name || "Pet",
+                phone: owner?.phone || "",
+                date: form.date,
+                time: form.time,
+                type: form.type,
+                id: data.id
+            });
             toast({ title: "Appointment created", description: "New appointment has been scheduled." });
         },
         onError: (err: Error) => {
@@ -195,7 +230,8 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                 name: newPatient.name,
                 species: newPatient.species,
                 breed: newPatient.breed || undefined,
-                age: parseInt(newPatient.age),
+                age: parseInt(newPatient.age) || 0,
+                ageMonths: parseInt(newPatient.ageMonths) || 0,
                 weight: newPatient.weight || undefined,
                 gender: newPatient.gender,
                 color: newPatient.color || undefined,
@@ -228,12 +264,21 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
             });
             return aptRes.json();
         },
-        onSuccess: () => {
+        onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
             queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
             queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
-            setOpen(false);
-            resetDialog();
+            queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
+            
+            setSuccessData({
+                ownerName: useExistingOwner && selectedOwner ? selectedOwner.firstName : newPatient.ownerFirstName,
+                petName: newPatient.name,
+                phone: useExistingOwner && selectedOwner ? selectedOwner.phone : newPatient.ownerPhone,
+                date: form.date,
+                time: form.time,
+                type: form.type,
+                id: data.id
+            });
             toast({ title: "Appointment created", description: "Patient registered and appointment scheduled." });
         },
         onError: (err: Error) => {
@@ -245,7 +290,7 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
     const canSubmitNew =
         showRegister &&
         newPatient.name &&
-        newPatient.age &&
+        (newPatient.age || newPatient.ageMonths) &&
         form.date &&
         form.time &&
         (
@@ -266,6 +311,7 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                 <DialogHeader>
                     <DialogTitle>Schedule Appointment</DialogTitle>
                 </DialogHeader>
+                {!successData && (
                 <div className="flex flex-col gap-4 mt-2">
                     {/* Date & Time */}
                     <div className="grid grid-cols-2 gap-3">
@@ -324,7 +370,12 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                                                 >
                                                     <div className="flex flex-col min-w-0">
                                                         <span className="font-medium truncate">{p.name} ({p.species})</span>
-                                                        <span className="text-xs text-muted-foreground truncate">{p.breed}</span>
+                                                        <span className="text-xs text-muted-foreground truncate">
+                                                            {p.breed ? `${p.breed} - ` : ""}
+                                                            {p.age > 0 ? `${p.age} Yrs ` : ""}
+                                                            {(p.ageMonths || 0) > 0 ? `${p.ageMonths} Mo` : ""}
+                                                            {(!p.age && !p.ageMonths) ? (p.breed ? "" : "Age unknown") : ""}
+                                                        </span>
                                                     </div>
                                                     {o && (
                                                         <span className="text-xs text-muted-foreground shrink-0">
@@ -371,8 +422,11 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                                 <div className="flex flex-col min-w-0">
                                     <span className="text-sm font-medium">{selectedPet.name} ({selectedPet.species})</span>
                                     <span className="text-xs text-muted-foreground">
-                                        {selectedPet.breed}
-                                        {selectedOwnerForExisting && ` - Owner: ${selectedOwnerForExisting.firstName} ${selectedOwnerForExisting.lastName}`}
+                                        {selectedPet.breed ? `${selectedPet.breed} - ` : ""}
+                                        {selectedPet.age > 0 ? `${selectedPet.age} Yrs ` : ""}
+                                        {(selectedPet.ageMonths || 0) > 0 ? `${selectedPet.ageMonths} Mo` : ""}
+                                        {(!selectedPet.age && !selectedPet.ageMonths) ? (selectedPet.breed ? "" : "Age unknown") : ""}
+                                        {selectedOwnerForExisting && ` | Owner: ${selectedOwnerForExisting.firstName} ${selectedOwnerForExisting.lastName}`}
                                     </span>
                                 </div>
                                 <Button
@@ -456,11 +510,14 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                                     <Select value={newPatient.species} onValueChange={(v) => setNewPatient({ ...newPatient, species: v })}>
                                         <SelectTrigger data-testid="select-new-species"><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="Dog">Dog</SelectItem>
-                                            <SelectItem value="Cat">Cat</SelectItem>
-                                            <SelectItem value="Bird">Bird</SelectItem>
-                                            <SelectItem value="Rabbit">Rabbit</SelectItem>
-                                            <SelectItem value="Hamster">Hamster</SelectItem>
+                                            <SelectItem value="Avian">Avian</SelectItem>
+                                            <SelectItem value="Bovine">Bovine</SelectItem>
+                                            <SelectItem value="Canine">Canine</SelectItem>
+                                            <SelectItem value="Caprine">Caprine</SelectItem>
+                                            <SelectItem value="Equine">Equine</SelectItem>
+                                            <SelectItem value="Feline">Feline</SelectItem>
+                                            <SelectItem value="Lagomorph">Lagomorph</SelectItem>
+                                            <SelectItem value="Porcine">Porcine</SelectItem>
                                             <SelectItem value="Other">Other</SelectItem>
                                         </SelectContent>
                                     </Select>
@@ -490,16 +547,29 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                             </div>
 
                             {/* Age & Weight */}
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-3 gap-3">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label htmlFor="new-pet-age">Age (years) *</Label>
+                                    <Label htmlFor="new-pet-age">Age (yrs) *</Label>
                                     <Input
                                         id="new-pet-age"
                                         type="number"
-                                        placeholder="Age"
+                                        placeholder="Yrs"
                                         value={newPatient.age}
                                         onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
                                         data-testid="input-new-pet-age"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <Label htmlFor="new-pet-age-months">Months</Label>
+                                    <Input
+                                        id="new-pet-age-months"
+                                        type="number"
+                                        placeholder="Mo"
+                                        min="0"
+                                        max="11"
+                                        value={newPatient.ageMonths}
+                                        onChange={(e) => setNewPatient({ ...newPatient, ageMonths: e.target.value })}
+                                        data-testid="input-new-pet-age-months"
                                     />
                                 </div>
                                 <div className="flex flex-col gap-1.5">
@@ -728,6 +798,50 @@ export function AddAppointmentDialog({ pets, owners, defaultDate }: { pets: Pet[
                         </Button>
                     )}
                 </div>
+                )}
+
+                {/* Success View */}
+                {successData && (
+                    <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
+                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                            <CheckCircle2 className="w-10 h-10 text-green-600" />
+                        </div>
+                        <div className="space-y-1">
+                            <h3 className="text-xl font-bold">Appointment Scheduled!</h3>
+                            <div className="flex items-center justify-center gap-2 mt-1">
+                                <span className="text-xs font-mono bg-muted px-2 py-0.5 rounded text-muted-foreground uppercase">
+                                    Booking ID: APT-{successData.id.toString().padStart(4, "0")}
+                                </span>
+                            </div>
+                            <p className="text-muted-foreground mt-2 text-sm text-balance px-4">
+                                For {successData.petName} on {successData.date} at {successData.time}
+                            </p>
+                        </div>
+
+                        <div className="flex flex-col gap-2 w-full pt-4">
+                            <Button
+                                className="w-full bg-green-600 hover:bg-green-700 text-white flex items-center gap-2"
+                                onClick={() => {
+                                    const msg = `Hello ${successData.ownerName}, this is a confirmation for ${successData.petName}'s appointment for ${successData.type} on ${successData.date} at ${successData.time}. See you then!`;
+                                    window.open(formatWhatsAppLink(successData.phone, msg), '_blank');
+                                }}
+                            >
+                                <FaWhatsapp className="w-5 h-5" />
+                                Send WhatsApp Confirmation
+                            </Button>
+                            <Button 
+                                variant="outline" 
+                                className="w-full"
+                                onClick={() => {
+                                    setOpen(false);
+                                    resetDialog();
+                                }}
+                            >
+                                Close
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </DialogContent>
 
             {/* Camera capture modal */}

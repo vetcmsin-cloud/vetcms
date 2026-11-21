@@ -28,9 +28,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PatientChart } from "@/components/patient-chart";
 import { CameraCapture } from "@/components/camera-capture";
 import { FullscreenImage } from "@/components/fullscreen-image";
-import { Plus, Search, PawPrint, Weight, Calendar, Camera, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Search, PawPrint, Weight, Calendar, Camera, Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import type { Pet, Owner } from "@shared/schema";
-import { cn } from "@/lib/utils";
+import { cn, formatWhatsAppLink, openWhatsAppLink } from "@/lib/utils";
+import { FaWhatsapp } from "react-icons/fa";
 import {
   Command,
   CommandEmpty,
@@ -45,6 +46,17 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/hooks/use-auth";
 
 function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (v: boolean) => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -66,7 +78,7 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
 
   const defaultForm = {
     name: "",
-    species: "Dog",
+    species: "Canine",
     breed: "",
     age: "",
     ageMonths: "",
@@ -134,9 +146,9 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
       }
       return pet;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+    onSuccess: (newPet) => {
       queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
       setIsOpen(false);
       setForm(defaultForm);
       setPhotoPreview(null);
@@ -218,11 +230,14 @@ function AddPetDialog({ open, onOpenChange }: { open?: boolean; onOpenChange?: (
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Dog">Dog</SelectItem>
-                  <SelectItem value="Cat">Cat</SelectItem>
-                  <SelectItem value="Bird">Bird</SelectItem>
-                  <SelectItem value="Rabbit">Rabbit</SelectItem>
-                  <SelectItem value="Hamster">Hamster</SelectItem>
+                  <SelectItem value="Avian">Avian</SelectItem>
+                  <SelectItem value="Bovine">Bovine</SelectItem>
+                  <SelectItem value="Canine">Canine</SelectItem>
+                  <SelectItem value="Caprine">Caprine</SelectItem>
+                  <SelectItem value="Equine">Equine</SelectItem>
+                  <SelectItem value="Feline">Feline</SelectItem>
+                  <SelectItem value="Lagomorph">Lagomorph</SelectItem>
+                  <SelectItem value="Porcine">Porcine</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
@@ -569,7 +584,7 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
       }
       return updated;
     },
-    onSuccess: () => {
+    onSuccess: (updatedPet) => {
       queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
       onOpenChange(false);
@@ -633,11 +648,14 @@ function EditPetDialog({ pet, owners, open, onOpenChange }: { pet: Pet; owners: 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Dog">Dog</SelectItem>
-                  <SelectItem value="Cat">Cat</SelectItem>
-                  <SelectItem value="Bird">Bird</SelectItem>
-                  <SelectItem value="Rabbit">Rabbit</SelectItem>
-                  <SelectItem value="Hamster">Hamster</SelectItem>
+                  <SelectItem value="Avian">Avian</SelectItem>
+                  <SelectItem value="Bovine">Bovine</SelectItem>
+                  <SelectItem value="Canine">Canine</SelectItem>
+                  <SelectItem value="Caprine">Caprine</SelectItem>
+                  <SelectItem value="Equine">Equine</SelectItem>
+                  <SelectItem value="Feline">Feline</SelectItem>
+                  <SelectItem value="Lagomorph">Lagomorph</SelectItem>
+                  <SelectItem value="Porcine">Porcine</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
@@ -913,27 +931,48 @@ function BookAppointmentDialog({ pet, owners, open, onOpenChange }: { pet: Pet; 
 
 export default function Patients() {
   const [search, setSearch] = useState("");
+  const [deletePetId, setDeletePetId] = useState<number | null>(null);
+  const { hasPermission } = useAuth();
+  const { toast } = useToast();
+  const canDelete = hasPermission("patients.delete", "admin_dashboard.view");
+
   const { data: pets, isLoading } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
   const { data: owners } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
   const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
+  const [deepLinkTab, setDeepLinkTab] = useState<string | undefined>(undefined);
+  const [highlightRecordId, setHighlightRecordId] = useState<number | undefined>(undefined);
 
-  // Deep linking support
+  const deletePetMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/pets/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      setDeletePetId(null);
+      toast({ title: "Patient deleted", description: "Patient record has been removed." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Deep linking support — reads ?petId, ?recordId, ?tab from URL
   useEffect(() => {
     if (isLoading || !pets) return;
     const params = new URLSearchParams(window.location.search);
     const petId = params.get("petId");
-    console.log("[Patients] Checking deep link. Search:", window.location.search, "petId:", petId);
 
     if (petId) {
       const pet = pets.find(p => p.id === parseInt(petId));
-      console.log("[Patients] Found pet:", pet ? pet.name : "Not Found");
-
       if (pet) {
         setSelectedPet(pet);
         setChartOpen(true);
-        // Clear param to avoid reopening on refresh? Or keep it?
-        // Keep it for now, it's fine.
+        // Read optional tab and recordId deep link params
+        const tab = params.get("tab");
+        const recordId = params.get("recordId");
+        if (tab) setDeepLinkTab(tab);
+        if (recordId) setHighlightRecordId(parseInt(recordId));
       }
     }
   }, [pets, isLoading]);
@@ -943,12 +982,27 @@ export default function Patients() {
   const [bookOpen, setBookOpen] = useState(false);
   const [fullscreenPet, setFullscreenPet] = useState<Pet | null>(null);
 
-  const filteredPets = pets?.filter(
-    (p) =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.breed || "").toLowerCase().includes(search.toLowerCase()) ||
-      p.species.toLowerCase().includes(search.toLowerCase())
-  );
+  const [displayCount, setDisplayCount] = useState(24);
+
+  useEffect(() => {
+    setDisplayCount(24);
+  }, [search]);
+
+  const filteredPets = pets?.filter((p) => {
+    const owner = owners?.find((o) => o.id === p.ownerId);
+    const searchLower = search.toLowerCase();
+
+    return (
+      p.name.toLowerCase().includes(searchLower) ||
+      (p.breed || "").toLowerCase().includes(searchLower) ||
+      p.species.toLowerCase().includes(searchLower) ||
+      (owner?.firstName || "").toLowerCase().includes(searchLower) ||
+      (owner?.lastName || "").toLowerCase().includes(searchLower) ||
+      (owner?.phone || "").toLowerCase().includes(searchLower)
+    );
+  }) || [];
+  
+  const displayedPets = filteredPets.slice(0, displayCount);
 
   const handlePetClick = (pet: Pet) => {
     setSelectedPet(pet);
@@ -1006,9 +1060,10 @@ export default function Patients() {
             </Card>
           ))}
         </div>
-      ) : filteredPets && filteredPets.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredPets.map((pet) => {
+      ) : displayedPets.length > 0 ? (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedPets.map((pet) => {
             const owner = owners?.find((o) => o.id === pet.ownerId);
             return (
               <Card
@@ -1059,11 +1114,30 @@ export default function Patients() {
                         </span>
                       )}
                     </div>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-7 h-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 self-start"
+                        onClick={(e) => { e.stopPropagation(); setDeletePetId(pet.id); }}
+                        data-testid={`btn-delete-pet-${pet.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             );
           })}
+          </div>
+          {filteredPets.length > displayCount && (
+            <div className="flex justify-center mt-2">
+              <Button variant="outline" onClick={() => setDisplayCount(c => c + 24)}>
+                Load More Patients
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -1076,10 +1150,12 @@ export default function Patients() {
       <PatientChart
         pet={selectedPet}
         open={chartOpen}
-        onOpenChange={setChartOpen}
+        onOpenChange={(v) => { setChartOpen(v); if (!v) { setDeepLinkTab(undefined); setHighlightRecordId(undefined); } }}
         owners={owners || []}
         onEditPet={handleEditPet}
         onBookAppointment={handleBookAppointment}
+        defaultTab={deepLinkTab}
+        highlightRecordId={highlightRecordId}
       />
 
       {editPet && (
@@ -1112,6 +1188,27 @@ export default function Patients() {
         open={!!fullscreenPet}
         onClose={() => setFullscreenPet(null)}
       />
+
+      {/* Delete Patient Confirmation */}
+      <AlertDialog open={deletePetId !== null} onOpenChange={(open) => { if (!open) setDeletePetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Patient?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this patient and all associated records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deletePetId && deletePetMutation.mutate(deletePetId)}
+            >
+              {deletePetMutation.isPending ? "Deleting..." : "Delete Patient"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

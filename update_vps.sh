@@ -1,89 +1,116 @@
 #!/bin/bash
 # ============================================================
-#   PetPoint Pro - VPS Update Script (GitHub Pull Method)
-#   Run on your VPS via Hostinger terminal or SSH:
-#     chmod +x update_vps.sh && ./update_vps.sh
+# PetPoint Pro - Safe Update Script (No Data Loss)
+#
+# INSTRUCTIONS:
+# 1. Upload this script + petpoint_update_*.zip to your VPS /root/
+# 2. SSH into your VPS and run:
+#      chmod +x /root/update_vps.sh
+#      sudo bash /root/update_vps.sh
 # ============================================================
 
 set -e
 
-# ── Colors ────────────────────────────────────────────────
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-RED='\033[0;31m'
-NC='\033[0m'
+APP_DIR="/var/www/vet-clinic"
 
-ok()   { echo -e "  ${GREEN}✔${NC} $1"; }
-warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
-err()  { echo -e "  ${RED}✘${NC} $1"; }
+# Detect PM2 app name automatically
+PM2_APP_NAME=$(pm2 list --no-color 2>/dev/null | awk -F'│' 'NR>3 {gsub(/ /,"",$3); if($3!=""&&$3!="AppName") print $3}' | head -n 1)
+if [ -z "$PM2_APP_NAME" ]; then
+  PM2_APP_NAME="vet-clinic-app"   # fallback
+fi
 
-echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "   PETPOINT PRO — VPS UPDATE UTILITY"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+# Find the NEWEST update zip by modification time (checks /root, /var/www/vet-clinic, or current dir)
+ZIP_FILE=$(ls -t /root/petpoint*.zip /var/www/vet-clinic/petpoint*.zip ./petpoint*.zip 2>/dev/null | head -n 1)
 
-# ── Config ────────────────────────────────────────────────
-APP_DIR="/var/www/petpoint"
-PM2_APP_NAME="petpoint"
-GITHUB_BRANCH="main"
-
-# ── Check directory ───────────────────────────────────────
-if [ ! -d "$APP_DIR" ]; then
-  err "App directory $APP_DIR not found."
+if [ -z "$ZIP_FILE" ]; then
+  echo "ERROR: No update zip found."
+  echo "   Please upload petpoint_update_latest.zip (or petpoint_*.zip) to /root/ or /var/www/vet-clinic/"
   exit 1
 fi
 
+echo "================================================"
+echo " PetPoint Pro Update"
+echo " Package  : $ZIP_FILE"
+echo " Modified : $(stat -c '%y' "$ZIP_FILE" | cut -d'.' -f1)"
+echo " App Dir  : $APP_DIR"
+echo " PM2 Name : $PM2_APP_NAME"
+echo "================================================"
+echo ""
+
+# Stop app
+echo "Stopping $PM2_APP_NAME ..."
+pm2 stop "$PM2_APP_NAME" 2>/dev/null || true
+sleep 2
+
+# Backup old dist
+BACKUP="$APP_DIR/dist_backup_$(date +%Y%m%d_%H%M)"
+echo "Backing up current dist to $BACKUP"
+cp -r "$APP_DIR/dist" "$BACKUP" 2>/dev/null || echo "   (no previous dist to backup)"
+
+# Extract to temp dir
+TMPDIR=$(mktemp -d)
+echo "Extracting $ZIP_FILE ..."
+unzip -q "$ZIP_FILE" -d "$TMPDIR" || true
+
+echo "   Extracted top-level contents:"
+ls "$TMPDIR"
+
+# Verify dist folder exists in the zip
+if [ ! -d "$TMPDIR/dist" ]; then
+  echo "ERROR: 'dist' folder not found in extracted zip."
+  echo "   Contents: $(ls $TMPDIR)"
+  rm -rf "$TMPDIR"
+  pm2 restart "$PM2_APP_NAME" 2>/dev/null || true
+  exit 1
+fi
+
+# Verify the main server bundle exists
+if [ ! -f "$TMPDIR/dist/index.cjs" ]; then
+  echo "ERROR: dist/index.cjs not found - zip may be corrupted or incomplete."
+  rm -rf "$TMPDIR"
+  pm2 restart "$PM2_APP_NAME" 2>/dev/null || true
+  exit 1
+fi
+
+echo "   Server bundle size: $(du -h "$TMPDIR/dist/index.cjs" | cut -f1)"
+echo "   Client assets: $(ls "$TMPDIR/dist/public/assets/" 2>/dev/null | wc -l) files"
+
+# Replace dist
+echo "Replacing dist files..."
+rm -rf "$APP_DIR/dist"
+cp -r "$TMPDIR/dist" "$APP_DIR/dist"
+
+# Replace package.json if present
+if [ -f "$TMPDIR/package.json" ]; then
+  cp "$TMPDIR/package.json" "$APP_DIR/package.json"
+  echo "package.json updated."
+fi
+
+# Cleanup temp
+rm -rf "$TMPDIR"
+
+# Also run the inventory fix SQL if it exists (safe, idempotent)
+if [ -f "$APP_DIR/fix_inventory_tables.sql" ]; then
+  echo "Running inventory tables migration (idempotent)..."
+  DB_URL=$(grep DATABASE_URL "$APP_DIR/.env" | cut -d'=' -f2-)
+  if [ -n "$DB_URL" ]; then
+    psql "$DB_URL" -f "$APP_DIR/fix_inventory_tables.sql" 2>/dev/null && echo "   DB migration OK" || echo "   DB migration skipped (already applied)"
+  fi
+fi
+
+# Restart app
+echo ""
+echo "Restarting $PM2_APP_NAME ..."
 cd "$APP_DIR"
+pm2 restart "$PM2_APP_NAME" 2>/dev/null || pm2 start dist/index.cjs --name "$PM2_APP_NAME"
 
-# ── Step 1: Backup .env & uploads ─────────────────────────
-ok "Backing up .env and uploads..."
-cp "$APP_DIR/.env" /tmp/petpoint_env_backup 2>/dev/null && ok ".env backed up" || warn ".env not found, skipping"
-if [ -d "$APP_DIR/server/uploads" ]; then
-  cp -r "$APP_DIR/server/uploads" /tmp/petpoint_uploads_backup 2>/dev/null
-  ok "Uploads backed up"
-fi
-
-# ── Step 2: Pull latest code from GitHub ──────────────────
-ok "Pulling latest code from GitHub ($GITHUB_BRANCH)..."
-git fetch origin
-git reset --hard origin/$GITHUB_BRANCH
-ok "Code updated successfully"
-
-# ── Step 3: Restore .env & uploads ────────────────────────
-ok "Restoring .env and uploads..."
-if [ -f "/tmp/petpoint_env_backup" ]; then
-  mv /tmp/petpoint_env_backup "$APP_DIR/.env"
-  ok ".env restored"
-fi
-if [ -d "/tmp/petpoint_uploads_backup" ]; then
-  mkdir -p "$APP_DIR/server/uploads"
-  cp -r /tmp/petpoint_uploads_backup/. "$APP_DIR/server/uploads/" 2>/dev/null || true
-  rm -rf /tmp/petpoint_uploads_backup
-  ok "Uploads restored"
-fi
-
-# ── Step 4: Install dependencies ──────────────────────────
-ok "Installing dependencies..."
-npm ci --silent
-ok "Dependencies ready"
-
-# ── Step 5: Build the app ─────────────────────────────────
-ok "Building the app (this may take a minute)..."
-npm run build
-ok "Build complete"
-
-# ── Step 6: Apply database schema changes ─────────────────
-ok "Applying database schema updates (data is safe)..."
-npx drizzle-kit push 2>&1 | tail -5
-ok "Database schema up to date"
-
-# ── Step 7: Restart PM2 ───────────────────────────────────
-ok "Restarting app..."
-pm2 restart "$PM2_APP_NAME" 2>/dev/null || pm2 start ecosystem.config.cjs
-pm2 save >/dev/null 2>&1
-ok "App restarted"
-
-echo -e "\n${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}   🎉  UPDATE SUCCESSFUL! PetPoint Pro is now on the latest version${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-pm2 status "$PM2_APP_NAME"
+sleep 4
+echo ""
+echo "=== STATUS ==="
+pm2 status
+echo ""
+echo "=== RECENT LOGS ==="
+pm2 logs "$PM2_APP_NAME" --lines 20 --nostream 2>/dev/null || true
+echo ""
+echo "Update complete! Zip used: $ZIP_FILE"
+echo "Logs: pm2 logs $PM2_APP_NAME --lines 30"

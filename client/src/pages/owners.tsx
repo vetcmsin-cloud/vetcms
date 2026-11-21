@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,11 +15,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Search, Users, Mail, Phone, MapPin } from "lucide-react";
+import { formatWhatsAppLink } from "@/lib/utils";
+import { FaWhatsapp } from "react-icons/fa";
+import { Plus, Search, Users, Mail, Phone, MapPin, Trash2 } from "lucide-react";
 import type { Owner, Pet } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
 
 function AddOwnerDialog() {
   const [open, setOpen] = useState(false);
@@ -129,16 +141,44 @@ function AddOwnerDialog() {
 
 export default function Owners() {
   const [search, setSearch] = useState("");
+  const [deleteOwnerId, setDeleteOwnerId] = useState<number | null>(null);
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const { hasPermission } = useAuth();
+  const canDelete = hasPermission("owners.delete", "admin_dashboard.view");
+
   const { data: owners, isLoading } = useQuery<Owner[]>({ queryKey: ["/api/owners"] });
   const { data: pets } = useQuery<Pet[]>({ queryKey: ["/api/pets"] });
+
+  const deleteOwnerMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/owners/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pets"] });
+      setDeleteOwnerId(null);
+      toast({ title: "Owner deleted", description: "Owner has been removed successfully." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const [displayCount, setDisplayCount] = useState(24);
+
+  useEffect(() => {
+    setDisplayCount(24);
+  }, [search]);
 
   const filteredOwners = owners?.filter(
     (o) =>
       `${o.firstName} ${o.lastName || ''}`.toLowerCase().includes(search.toLowerCase()) ||
       (o.email || '').toLowerCase().includes(search.toLowerCase()) ||
       o.phone.includes(search)
-  );
+  ) || [];
+
+  const displayedOwners = filteredOwners.slice(0, displayCount);
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto" data-testid="page-owners">
@@ -179,9 +219,10 @@ export default function Owners() {
             </Card>
           ))}
         </div>
-      ) : filteredOwners && filteredOwners.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredOwners.map((owner) => {
+      ) : displayedOwners.length > 0 ? (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedOwners.map((owner) => {
             const ownerPets = pets?.filter((p) => p.ownerId === owner.id) || [];
             return (
               <Card key={owner.id} className="hover-elevate" data-testid={`card-owner-${owner.id}`}>
@@ -193,9 +234,22 @@ export default function Owners() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <span className="text-sm font-semibold truncate">
-                        {owner.firstName} {owner.lastName}
-                      </span>
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="text-sm font-semibold truncate">
+                          {owner.firstName} {owner.lastName}
+                        </span>
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-6 h-6 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => { e.stopPropagation(); setDeleteOwnerId(owner.id); }}
+                            data-testid={`btn-delete-owner-${owner.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Mail className="w-3 h-3 flex-shrink-0" />
                         <span className="truncate">{owner.email}</span>
@@ -220,7 +274,7 @@ export default function Owners() {
                             variant="outline"
                             className="text-[10px] cursor-pointer hover:bg-primary/10 hover:text-primary transition-colors"
                             onClick={(e) => {
-                              e.stopPropagation(); // Prevent card click propagation if any
+                              e.stopPropagation();
                               setLocation(`/patients?petId=${p.id}`);
                             }}
                           >
@@ -239,6 +293,14 @@ export default function Owners() {
               </Card>
             );
           })}
+          </div>
+          {filteredOwners.length > displayCount && (
+            <div className="flex justify-center mt-2">
+              <Button variant="outline" onClick={() => setDisplayCount(c => c + 24)}>
+                Load More Owners
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -247,6 +309,27 @@ export default function Owners() {
           <p className="text-xs mt-1">Register a new owner to get started.</p>
         </div>
       )}
+
+      {/* Delete Owner Confirmation */}
+      <AlertDialog open={deleteOwnerId !== null} onOpenChange={(open) => { if (!open) setDeleteOwnerId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Owner?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this owner and all their associated data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteOwnerId && deleteOwnerMutation.mutate(deleteOwnerId)}
+            >
+              {deleteOwnerMutation.isPending ? "Deleting..." : "Delete Owner"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

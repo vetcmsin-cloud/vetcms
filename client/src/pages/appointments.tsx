@@ -39,6 +39,8 @@ import { format, isBefore, startOfToday, parseISO } from "date-fns";
 import type { Appointment, Pet, Owner } from "@shared/schema";
 import { AddAppointmentDialog } from "@/components/add-appointment-dialog";
 import { EditAppointmentDialog } from "@/components/edit-appointment-dialog";
+import { FaWhatsapp } from "react-icons/fa";
+import { formatWhatsAppLink, formatTime12h } from "@/lib/utils";
 
 function statusVariant(status: string) {
   switch (status) {
@@ -81,8 +83,11 @@ export default function Appointments() {
       const res = await apiRequest("PATCH", `/api/appointments/${id}`, { status });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+    onSuccess: (updatedAppointment) => {
+      queryClient.setQueryData(["/api/appointments"], (old: any) => 
+        old ? old.map((apt: any) => apt.id === updatedAppointment.id ? updatedAppointment : apt) : old
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
       toast({ title: "Status updated" });
     },
   });
@@ -96,9 +101,10 @@ export default function Appointments() {
       const searchLower = search.toLowerCase();
       return (
         pet?.name.toLowerCase().includes(searchLower) ||
-        owner?.firstName.toLowerCase().includes(searchLower) ||
-        owner?.lastName.toLowerCase().includes(searchLower) ||
-        a.type.toLowerCase().includes(searchLower)
+        (owner?.firstName || "").toLowerCase().includes(searchLower) ||
+        (owner?.lastName || "").toLowerCase().includes(searchLower) ||
+        a.type.toLowerCase().includes(searchLower) ||
+        `APT-${a.id.toString().padStart(4, "0")}`.toLowerCase().includes(searchLower)
       );
     })
     .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
@@ -112,7 +118,7 @@ export default function Appointments() {
             Schedule and manage all clinic appointments.
           </p>
         </div>
-        <AddAppointmentDialog pets={pets || []} owners={owners || []} />
+        <AddAppointmentDialog />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -195,10 +201,15 @@ export default function Appointments() {
 }
 
 function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) {
+  const [displayCount, setDisplayCount] = useState(50);
+  const displayed = filtered.slice(0, displayCount);
+
   return (
-    <Table>
+    <div className="flex flex-col">
+      <Table>
       <TableHeader>
         <TableRow>
+          <TableHead className="w-[100px]">ID</TableHead>
           <TableHead>Patient</TableHead>
           <TableHead>Owner</TableHead>
           <TableHead>Date & Time</TableHead>
@@ -208,11 +219,14 @@ function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) 
         </TableRow>
       </TableHeader>
       <TableBody>
-        {filtered.map((apt: any) => {
+        {displayed.map((apt: any) => {
           const pet = pets?.find((p: any) => p.id === apt.petId);
           const owner = owners?.find((o: any) => o.id === apt.ownerId);
           return (
             <TableRow key={apt.id} data-testid={`row-appointment-${apt.id}`}>
+              <TableCell className="font-mono text-xs font-medium text-muted-foreground whitespace-nowrap">
+                APT-{apt.id.toString().padStart(4, "0")}
+              </TableCell>
               <TableCell>
                 <div className="flex items-center gap-2">
                   <Avatar className="w-8 h-8">
@@ -223,7 +237,12 @@ function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) 
                   </Avatar>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">{pet?.name || "Unknown"}</span>
-                    <span className="text-[11px] text-muted-foreground">{pet?.species}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {pet?.species}
+                      {pet?.breed ? ` - ${pet.breed}` : ""}
+                      {(pet?.age ?? 0) > 0 ? ` | ${pet?.age} Yrs` : ""}
+                      {(pet?.ageMonths ?? 0) > 0 ? ` ${pet?.ageMonths} Mo` : ""}
+                    </span>
                   </div>
                 </div>
               </TableCell>
@@ -235,7 +254,7 @@ function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) 
               <TableCell>
                 <div className="flex flex-col">
                   <span className="text-sm">{apt.date}</span>
-                  <span className="text-[11px] text-muted-foreground">{apt.time}</span>
+                  <span className="text-[11px] text-muted-foreground">{formatTime12h(apt.time)}</span>
                 </div>
               </TableCell>
               <TableCell>
@@ -254,6 +273,20 @@ function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) 
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">
                   <EditAppointmentDialog appointment={apt} pets={pets || []} owners={owners || []} />
+                  {owner?.phone && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                      onClick={() => {
+                        const message = `Hello ${owner.firstName}, this is a confirmation for ${pet?.name || 'your pet'}'s appointment for ${apt.type} on ${apt.date} at ${apt.time}. See you then!`;
+                        window.open(formatWhatsAppLink(owner.phone, message), '_blank');
+                      }}
+                      title="Send WhatsApp Confirmation"
+                    >
+                      <FaWhatsapp className="w-4 h-4" />
+                    </Button>
+                  )}
                   {apt.status === "scheduled" && (
                     <>
                       <Button
@@ -283,6 +316,14 @@ function AppointmentList({ filtered, pets, owners, updateStatusMutation }: any) 
         })}
       </TableBody>
     </Table>
+    {filtered.length > displayCount && (
+      <div className="flex justify-center p-4 border-t">
+        <Button variant="outline" onClick={() => setDisplayCount(c => c + 50)}>
+          Load More Appointments
+        </Button>
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -332,7 +373,7 @@ function CalendarView({ appointments, pets, owners }: { appointments: Appointmen
             {date ? format(date, "MMMM d, yyyy") : "Select a date"}
           </h3>
           {date && !isPastDate && (
-            <AddAppointmentDialog pets={pets} owners={owners} defaultDate={date} />
+            <AddAppointmentDialog defaultDate={date} />
           )}
         </div>
 
@@ -346,15 +387,34 @@ function CalendarView({ appointments, pets, owners }: { appointments: Appointmen
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex flex-col items-center justify-center w-12 h-12 bg-muted rounded-md px-1">
-                        <span className="text-xs font-bold">{apt.time}</span>
+                        <span className="text-xs font-bold">{formatTime12h(apt.time)}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-semibold">{pet?.name || "Unknown"}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{pet?.name || "Unknown"}</span>
+                          <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground">
+                            APT-{apt.id.toString().padStart(4, "0")}
+                          </span>
+                        </div>
                         <span className="text-xs text-muted-foreground">{apt.type} - {owner?.firstName} {owner?.lastName}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={statusVariant(apt.status) as any}>{apt.status}</Badge>
+                      {owner?.phone && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                          onClick={() => {
+                            const message = `Hello ${owner.firstName}, this is a reminder for ${pet?.name || 'your pet'}'s appointment for ${apt.type} on ${apt.date} at ${apt.time}. See you then!`;
+                            window.open(formatWhatsAppLink(owner.phone, message), '_blank');
+                          }}
+                          title="Send WhatsApp Confirmation"
+                        >
+                          <FaWhatsapp className="w-4 h-4" />
+                        </Button>
+                      )}
                       <EditAppointmentDialog appointment={apt} pets={pets} owners={owners} />
                     </div>
                   </CardContent>

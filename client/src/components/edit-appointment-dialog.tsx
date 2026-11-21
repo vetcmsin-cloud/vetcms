@@ -21,6 +21,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Pencil } from "lucide-react";
+import { FaWhatsapp } from "react-icons/fa";
+import { formatWhatsAppLink } from "@/lib/utils";
 import type { Appointment, Pet, Owner } from "@shared/schema";
 
 const appointmentTypes = [
@@ -62,6 +64,7 @@ export function EditAppointmentDialog({ appointment, pets, owners }: { appointme
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
             setOpen(false);
             toast({ title: "Appointment updated", description: "Appointment details have been updated." });
         },
@@ -97,14 +100,23 @@ export function EditAppointmentDialog({ appointment, pets, owners }: { appointme
             </DialogTrigger>
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Edit Appointment</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2">
+                        Edit Appointment
+                        <span className="text-xs font-mono font-normal bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                            APT-{appointment.id.toString().padStart(4, "0")}
+                        </span>
+                    </DialogTitle>
                 </DialogHeader>
                 <div className="flex flex-col gap-4 mt-2">
                     <div className="p-3 border rounded-md bg-muted/20">
                         <div className="flex flex-col min-w-0">
                             <span className="text-sm font-medium">{pet?.name} ({pet?.species})</span>
                             <span className="text-xs text-muted-foreground">
-                                Owner: {owner?.firstName} {owner?.lastName}
+                                {pet?.breed ? `${pet?.breed} - ` : ""}
+                                {(pet?.age ?? 0) > 0 ? `${pet?.age} Yrs ` : ""}
+                                {(pet?.ageMonths ?? 0) > 0 ? `${pet?.ageMonths} Mo` : ""}
+                                {(!(pet?.age) && !(pet?.ageMonths)) ? (pet?.breed ? "" : "Age unknown") : ""}
+                                {owner && ` | Owner: ${owner.firstName} ${owner.lastName}`}
                             </span>
                         </div>
                     </div>
@@ -171,12 +183,28 @@ export function EditAppointmentDialog({ appointment, pets, owners }: { appointme
                         />
                     </div>
 
-                    <Button
-                        onClick={() => appointmentMutation.mutate()}
-                        disabled={appointmentMutation.isPending}
-                    >
-                        {appointmentMutation.isPending ? "Updating..." : "Update Appointment"}
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button
+                            className="flex-1"
+                            onClick={() => appointmentMutation.mutate()}
+                            disabled={appointmentMutation.isPending}
+                        >
+                            {appointmentMutation.isPending ? "Updating..." : "Update Appointment"}
+                        </Button>
+                        {owner?.phone && (
+                            <Button
+                                variant="outline"
+                                className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+                                onClick={() => {
+                                    const message = `Hello ${owner.firstName}, this is an update regarding ${pet?.name || 'your pet'}'s appointment. It is now scheduled for ${form.date} at ${form.time} (${form.type}). See you then!`;
+                                    window.open(formatWhatsAppLink(owner.phone, message), '_blank');
+                                }}
+                                title="Send WhatsApp Update"
+                            >
+                                <FaWhatsapp className="w-5 h-5" />
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>

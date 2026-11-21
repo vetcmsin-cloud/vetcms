@@ -21,11 +21,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Settings, Printer, Building2, ImageIcon, Save, ArrowLeft,
   Palette, QrCode, Upload, X, Loader2, Eye, Type, LayoutGrid,
-  ToggleLeft, Columns3, PanelTop,
+  ToggleLeft, Columns3, PanelTop, Activity, Globe,
 } from "lucide-react";
 import { Link } from "wouter";
 import { QRCodeSVG } from "qrcode.react";
 import { ImageUploader } from "@/components/ui/image-uploader";
+import { TIMEZONE_OPTIONS, DEFAULT_TIMEZONE } from "@/lib/timezone";
+
 
 
 
@@ -442,6 +444,8 @@ export default function AdminSettings() {
     queryKey: ["/api/clinic-settings"],
   });
 
+  const [showClinicInfo, setShowClinicInfo] = useState(false);
+
 
   const [printerType, setPrinterType] = useState("a4");
   const [invoiceHeaderColor, setInvoiceHeaderColor] = useState("#D81B60"); // Custom Pink
@@ -491,8 +495,9 @@ export default function AdminSettings() {
 
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
   const [loginBackgroundColor, setLoginBackgroundColor] = useState("");
-
-
+  const [nextInvoiceNumber, setNextInvoiceNumber] = useState("");
+  const [clinicTimezone, setClinicTimezone] = useState(DEFAULT_TIMEZONE);
+  const [showGeneralSettings, setShowGeneralSettings] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -539,6 +544,8 @@ export default function AdminSettings() {
 
       setLoginBackgroundUrl(settings.loginBackgroundUrl || "");
       setLoginBackgroundColor(settings.loginBackgroundColor || "");
+      setNextInvoiceNumber(settings.next_invoice_number || "");
+      setClinicTimezone(settings.clinicTimezone || DEFAULT_TIMEZONE);
 
 
     }
@@ -597,7 +604,8 @@ export default function AdminSettings() {
     colQuantity, colPrice, colTotal, clinicName, clinicTagline, clinicAddress, clinicPhone,
     clinicEmail, gstNumber, registrationNumber, footerText, termsConditions,
     upiId, upiBankName, upiPayeeName, doctorName, bankName,
-    loginBackgroundUrl, loginBackgroundColor
+    loginBackgroundUrl, loginBackgroundColor,
+    nextInvoiceNumber
   ]);
 
   const saveMutation = useMutation({
@@ -641,14 +649,10 @@ export default function AdminSettings() {
       invoiceColQuantity: colQuantity,
       invoiceColPrice: colPrice,
       invoiceColTotal: colTotal,
-      invoiceBackgroundImage,
-      invoiceLogoImage,
-      invoicePaidStampImage,
       doctorName,
       bankName,
       loginBackgroundUrl,
       loginBackgroundColor,
-      ...(invoiceLayout ? { invoiceLayout: JSON.stringify(invoiceLayout) } : {}),
     });
   };
 
@@ -666,6 +670,7 @@ export default function AdminSettings() {
       termsConditions,
       doctorName,
       bankName,
+      next_invoice_number: nextInvoiceNumber,
     });
   };
 
@@ -683,6 +688,10 @@ export default function AdminSettings() {
       loginBackgroundUrl,
       loginBackgroundColor,
     });
+  };
+
+  const saveGeneralSettings = () => {
+    saveMutation.mutate({ clinicTimezone });
   };
 
   const fontFamily = useMemo(() => getFontFamily(invoiceFontFamily), [invoiceFontFamily]);
@@ -719,8 +728,41 @@ export default function AdminSettings() {
 
 
       <div className="space-y-6 mt-6">
-        {/* Design Studio Tiles */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {!showClinicInfo ? (
+          <>
+            {/* Design Studio Tiles */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card
+                className="cursor-pointer hover:shadow-lg hover:border-blue-500/40 transition-all group"
+                onClick={() => setShowClinicInfo(true)}
+              >
+                <CardContent className="flex flex-col items-center gap-3 py-8">
+                  <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-blue-500/10 group-hover:bg-blue-500/20 transition-colors">
+                    <Building2 className="w-7 h-7 text-blue-600" />
+                  </div>
+                  <div className="text-center">
+                    <CardTitle className="text-base">Clinic Information</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">Logo, address, GST & contact details</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+
+
+          <Link href="/admin/general-settings">
+            <Card className="cursor-pointer hover:shadow-lg hover:border-teal-500/40 transition-all group">
+              <CardContent className="flex flex-col items-center gap-3 py-8">
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-teal-500/10 group-hover:bg-teal-500/20 transition-colors">
+                  <Globe className="w-7 h-7 text-teal-600" />
+                </div>
+                <div className="text-center">
+                  <CardTitle className="text-base">General Settings</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">Timezone & regional preferences</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
           <Link href="/admin/design-studio/invoice">
             <Card className="cursor-pointer hover:shadow-lg hover:border-primary/40 transition-all group">
               <CardContent className="flex flex-col items-center gap-3 py-8">
@@ -728,8 +770,8 @@ export default function AdminSettings() {
                   <Palette className="w-7 h-7 text-primary" />
                 </div>
                 <div className="text-center">
-                  <CardTitle className="text-base">Invoice Design</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">Layout, colors, fields &amp; styling</p>
+                  <CardTitle className="text-base">Sales Invoice Design</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">Layout, colors, fields & styling</p>
                 </div>
               </CardContent>
             </Card>
@@ -743,7 +785,21 @@ export default function AdminSettings() {
                 </div>
                 <div className="text-center">
                   <CardTitle className="text-base">Lab Report Design</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">CBC, blood chemistry &amp; more</p>
+                  <p className="text-xs text-muted-foreground mt-1">CBC, blood chemistry & more</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/admin/design-studio/lab-report?type=Reproductive">
+            <Card className="cursor-pointer hover:shadow-lg hover:border-pink-500/40 transition-all group">
+              <CardContent className="flex flex-col items-center gap-3 py-8">
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-pink-500/10 group-hover:bg-pink-500/20 transition-colors">
+                  <Activity className="w-7 h-7 text-pink-600" />
+                </div>
+                <div className="text-center">
+                  <CardTitle className="text-base">Reproductive Design</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">EVC, Progesterone & Timeline design</p>
                 </div>
               </CardContent>
             </Card>
@@ -757,12 +813,60 @@ export default function AdminSettings() {
                 </div>
                 <div className="text-center">
                   <CardTitle className="text-base">Medical Report Design</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">SOAP notes, diagnosis &amp; prescriptions</p>
+                  <p className="text-xs text-muted-foreground mt-1">SOAP notes, diagnosis & prescriptions</p>
                 </div>
               </CardContent>
             </Card>
           </Link>
+
+          <Link href="/admin/design-studio/purchase-invoice">
+            <Card className="cursor-pointer hover:shadow-lg hover:border-orange-500/40 transition-all group">
+              <CardContent className="flex flex-col items-center gap-3 py-8">
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-orange-500/10 group-hover:bg-orange-500/20 transition-colors">
+                  <Palette className="w-7 h-7 text-orange-600" />
+                </div>
+                <div className="text-center">
+                  <CardTitle className="text-base">Purchase Invoice Design</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">Layout, colors, fields & styling</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+          <Link href="/admin/design-studio/purchase-order">
+            <Card className="cursor-pointer hover:shadow-lg hover:border-indigo-500/40 transition-all group">
+              <CardContent className="flex flex-col items-center gap-3 py-8">
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-indigo-500/10 group-hover:bg-indigo-500/20 transition-colors">
+                  <Palette className="w-7 h-7 text-indigo-600" />
+                </div>
+                <div className="text-center">
+                  <CardTitle className="text-base">Purchase Order Design</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">Layout, colors, fields & styling</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+
+
         </div>
+
+
+
+      </>
+    ) : (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowClinicInfo(false)}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back to Design Studio
+          </Button>
+          <h2 className="text-xl font-bold tracking-tight">Clinic & System Settings</h2>
+        </div>
+
 
         <Card data-testid="card-clinic-info">
           <CardHeader className="flex flex-row items-center gap-2 pb-3">
@@ -889,6 +993,25 @@ export default function AdminSettings() {
                 rows={3}
                 data-testid="input-terms-conditions"
               />
+            </div>
+
+            <div className="flex flex-col gap-1.5 border-t pt-4 mt-2">
+              <Label htmlFor="setting-next-invoice" className="text-primary font-bold">Next Invoice Number</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  id="setting-next-invoice"
+                  type="number"
+                  value={nextInvoiceNumber}
+                  onChange={(e) => setNextInvoiceNumber(e.target.value)}
+                  placeholder="e.g., 1 or 1001"
+                  className="max-w-[200px]"
+                  data-testid="input-next-invoice-number"
+                />
+                <p className="text-xs text-muted-foreground flex-1">
+                  The number to be assigned to the <strong>next</strong> invoice created. 
+                  Currently, invoices are prefixed with #PET.
+                </p>
+              </div>
             </div>
 
             <div className="flex justify-end">
@@ -1058,6 +1181,8 @@ export default function AdminSettings() {
           </CardContent>
         </Card>
       </div>
-    </div >
-  );
+    )}
+  </div>
+</div>
+);
 }

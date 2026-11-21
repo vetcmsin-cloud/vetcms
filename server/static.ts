@@ -10,10 +10,26 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Serve static assets with long-lived cache headers.
+  // Vite adds content hashes to JS/CSS filenames, so we can cache them forever.
+  app.use(
+    express.static(distPath, {
+      maxAge: "1y",
+      immutable: true,
+      // Do NOT cache the index.html entrypoint — it must always be fresh for SPA routing
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+          res.setHeader("Expires", "0");
+        }
+      },
+    }),
+  );
 
-  // fall through to index.html if the file doesn't exist
-  app.use("/{*path}", (_req, res) => {
+  // Fall through to index.html for any unmatched route (SPA client-side routing)
+  app.use((_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

@@ -7,13 +7,15 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { LogIn, Eye, EyeOff } from "lucide-react";
-import logoImg from "@assets/Untitled_design_(2)_-_Copy_1770707768689.png";
 
 type ClinicSettings = Record<string, string>;
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [clinicName, setClinicName] = useState("");
+  const [name, setName] = useState("");
+  const [registering, setRegistering] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const { toast } = useToast();
@@ -22,11 +24,31 @@ export default function Login() {
   const bgUrl = settings?.loginBackgroundUrl || "";
   const bgColor = settings?.loginBackgroundColor || "";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (registering) {
+      try {
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ clinicName, name, email, password }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || "Could not create clinic");
+        toast({ title: "Clinic created", description: "Your clinic account is ready. Sign in to continue." });
+        setRegistering(false);
+      } catch (error) {
+        toast({ title: "Registration failed", description: error instanceof Error ? error.message : "Could not create clinic", variant: "destructive" });
+      }
+      return;
+    }
     login.mutate(
       { email, password },
       {
+        onSuccess: () => {
+          window.location.href = "/";
+        },
         onError: (err: Error) => {
           toast({ title: "Login Failed", description: err.message, variant: "destructive" });
         },
@@ -54,15 +76,25 @@ export default function Login() {
       <Card className="w-full max-w-sm relative z-10">
         <CardHeader className="text-center pb-2">
           <div className="flex items-center justify-center mb-4">
-            <img src={settings?.clinicLogoUrl || logoImg} alt={settings?.clinicName || "PetPoint Pro"} className="w-12 h-12 rounded-md object-cover" />
+            <img src="/vetcms-logo.png" alt="VETCMS veterinary logo" className="h-24 w-36 rounded-lg object-contain" />
           </div>
-          <CardTitle className="text-xl font-bold">{settings?.clinicName || "PetPoint Pro"}</CardTitle>
+          <CardTitle className="text-xl font-bold">VETCMS</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Sign in to your clinic account
+            {registering ? "Create a clinic account with a 14-day demo" : "Sign in to your clinic account"}
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {registering && <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="register-clinic">Clinic name</Label>
+                <Input id="register-clinic" value={clinicName} onChange={(event) => setClinicName(event.target.value)} required minLength={2} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="register-name">Your name</Label>
+                <Input id="register-name" value={name} onChange={(event) => setName(event.target.value)} required minLength={2} />
+              </div>
+            </>}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="login-email">Email</Label>
               <Input
@@ -81,10 +113,11 @@ export default function Login() {
                 <Input
                   id="login-password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter password"
+                  placeholder={registering ? "At least 8 characters" : "Enter password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={registering ? 8 : undefined}
                   className="pr-10"
                   data-testid="input-login-password"
                 />
@@ -102,10 +135,10 @@ export default function Login() {
             </div>
             <Button
               type="submit"
-              disabled={login.isPending || !email || !password}
+              disabled={login.isPending || !email || !password || (registering && (!clinicName || !name))}
               data-testid="button-login"
             >
-              {login.isPending ? (
+              {registering ? "Create clinic account" : login.isPending ? (
                 "Signing in..."
               ) : (
                 <>
@@ -114,6 +147,9 @@ export default function Login() {
                 </>
               )}
             </Button>
+            <button type="button" className="text-sm text-primary hover:underline" onClick={() => setRegistering(!registering)}>
+              {registering ? "Already have an account? Sign in" : "Create a new clinic account"}
+            </button>
           </form>
         </CardContent>
       </Card>

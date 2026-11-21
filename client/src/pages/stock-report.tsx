@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { type InventoryItem, type Supplier, INVENTORY_CATEGORIES } from "@shared/schema";
+import { type InventoryItem, type Supplier } from "@shared/schema";
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";

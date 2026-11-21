@@ -219,12 +219,15 @@ export default function AdminBackup() {
       { label: "Appointments", count: d.appointments?.length || 0 },
       { label: "Medical Records", count: d.medicalRecords?.length || 0 },
       { label: "Invoices", count: d.invoices?.length || 0 },
+      { label: "Estimates", count: d.estimates?.length || 0 },
+      { label: "Pet Documents", count: d.petDocuments?.length || 0 },
       { label: "Lab Reports", count: d.labReports?.length || 0 },
       { label: "Fee Structures", count: d.feeStructures?.length || 0 },
       { label: "Inventory Items", count: d.inventoryItems?.length || 0 },
       { label: "Expenses", count: d.expenses?.length || 0 },
       { label: "Suppliers", count: d.suppliers?.length || 0 },
       { label: "Purchase Orders", count: d.purchaseOrders?.length || 0 },
+      { label: "Purchases", count: d.purchases?.length || 0 },
       { label: "Clinic Settings", count: d.clinicSettings ? Object.keys(d.clinicSettings).length : 0 },
       { label: "Roles", count: d.roles?.length || 0 },
     ].filter(s => s.count > 0);
@@ -254,30 +257,9 @@ export default function AdminBackup() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Download a complete backup of your clinic data. Choose your preferred format.
+            Download a backup containing only your clinic's data.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* SQL Download */}
-            <div className="border rounded-lg p-4 space-y-3 bg-emerald-50/50 border-emerald-200">
-              <div className="flex items-center gap-2">
-                <FileCode className="w-4 h-4 text-emerald-600" />
-                <span className="text-sm font-semibold">SQL Backup</span>
-                <Badge variant="secondary" className="text-[10px]">Recommended</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Native PostgreSQL dump. Most reliable for full database backup & restore.
-              </p>
-              <Button
-                onClick={handleExportSql}
-                disabled={isExportingSql}
-                className="w-full bg-emerald-600 hover:bg-emerald-700"
-                data-testid="button-export-sql"
-              >
-                {isExportingSql ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
-                {isExportingSql ? "Exporting..." : "Download .sql"}
-              </Button>
-            </div>
-
+          <div className="grid grid-cols-1 gap-3">
             {/* JSON Download */}
             <div className="border rounded-lg p-4 space-y-3">
               <div className="flex items-center gap-2">
@@ -308,82 +290,6 @@ export default function AdminBackup() {
           )}
         </CardContent>
       </Card>
-
-      {/* ═══════ RESTORE SQL BACKUP ═══════ */}
-      <Card className="border-emerald-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileCode className="w-4 h-4 text-emerald-600" />
-            Restore SQL Backup
-            <Badge variant="secondary" className="text-[10px]">Recommended</Badge>
-            <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">Super Admin</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3 p-3 rounded-md bg-amber-50 border border-amber-200">
-            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-            <p className="text-sm text-amber-800">
-              Restoring an SQL backup will <strong>replace all existing data</strong> with the backup data.
-              This is a full database restore. Make sure to download a backup first!
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="sql-file">Select SQL Backup File (.sql)</Label>
-            <Input
-              ref={sqlFileInputRef}
-              id="sql-file"
-              type="file"
-              accept=".sql"
-              onChange={handleSqlFileSelect}
-              className="flex-1"
-              data-testid="input-sql-file"
-            />
-          </div>
-
-          {sqlFile && (
-            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
-              <div className="flex items-center gap-2">
-                <FileCode className="w-4 h-4 text-emerald-600" />
-                <span className="text-sm font-semibold">Selected: {sqlFile.name}</span>
-                <Badge variant="secondary" className="text-[10px]">
-                  {(sqlFile.size / 1024).toFixed(1)} KB
-                </Badge>
-              </div>
-
-              <Button
-                variant="destructive"
-                onClick={() => setShowSqlRestoreConfirm(true)}
-                disabled={isRestoringSql}
-                className="w-full"
-                data-testid="button-restore-sql"
-              >
-                {isRestoringSql ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                    Restoring...
-                  </>
-                ) : (
-                  <>
-                    <Shield className="w-4 h-4 mr-1" />
-                    Restore SQL Backup
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-
-          {sqlRestoreResult && (
-            <div className="border rounded-lg p-4 bg-emerald-50 border-emerald-200 space-y-2">
-              <div className="flex items-center gap-2 text-emerald-700">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm font-semibold">{sqlRestoreResult.message}</span>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* ═══════ RESTORE JSON BACKUP ═══════ */}
       <Card className="border-blue-100">
         <CardHeader className="pb-3">
@@ -491,8 +397,7 @@ export default function AdminBackup() {
       <Card>
         <CardContent className="p-5">
           <p className="text-xs text-muted-foreground">
-            <strong>SQL Backup</strong> is recommended — it's a native PostgreSQL dump that preserves all data perfectly.
-            <strong> JSON Backup</strong> is useful for data migration or inspection.
+            <strong>JSON Backup</strong> contains only this clinic's data and can be restored within this clinic.
             Always download a backup before restoring. User accounts and passwords are never affected by restore operations.
           </p>
         </CardContent>

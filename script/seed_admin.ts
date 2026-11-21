@@ -3,39 +3,17 @@ import 'dotenv/config';
 import { storage } from "../server/storage";
 import { hashPassword } from "../server/auth";
 import { seedDatabase } from "../server/seed";
+import { ensureTenantSchema } from "../server/multitenancy";
+import { runWithTenant } from "../server/db";
 
 async function main() {
     try {
+        const legacyTenantId = await ensureTenantSchema();
+        await runWithTenant(legacyTenantId, async () => {
         console.log("Ensuring default roles and data exist...");
         await seedDatabase();
 
-        // 1. Ensure Super Admin exists
-        let superAdmin = await storage.getUserByEmail("superadmin@petpointvet.in");
-        const hashedSuperPw = await hashPassword("superadmin123");
-
-        if (!superAdmin) {
-            console.log("Creating superadmin user...");
-            // Create user logic...
-            // NOTE: createUser expects InsertUser, check schema. username/specialization might not be in schema.
-            // Based on schema.ts: name, email, password, role, permissions.
-            await storage.createUser({
-                email: "superadmin@petpointvet.in",
-                password: hashedSuperPw,
-                role: "superadmin",
-                name: "Super Admin",
-                permissions: [],
-            });
-            console.log("Super Admin created: superadmin@petpointvet.in / superadmin123");
-        } else {
-            console.log("Super Admin exists. Updating password...");
-            await storage.updateUser(superAdmin.id, {
-                password: hashedSuperPw,
-                role: "superadmin"
-            });
-            console.log("Updated Super Admin credentials");
-        }
-
-        // 2. Ensure Normal Admin exists
+        // Ensure the clinic-local admin exists
         let admin = await storage.getUserByEmail("admin@petpointvet.in");
         const hashedAdminPw = await hashPassword("admin123");
 
@@ -60,9 +38,10 @@ async function main() {
 
         console.log("Seeding complete.");
         console.log("--------------------------------");
-        console.log("Super Admin: superadmin@petpointvet.in / superadmin123");
+        console.log("Platform Super Admin: superadmin@petpointvet.in / superadmin123");
         console.log("Normal Admin: admin@petpointvet.in / admin123");
         console.log("--------------------------------");
+        });
 
     } catch (error) {
         console.error("Error seeding database:", error);

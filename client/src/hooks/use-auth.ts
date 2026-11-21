@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
 
-type SafeUser = Omit<User, "password"> & { effectivePermissions?: string[] };
+type SafeUser = Omit<User, "password"> & { effectivePermissions?: string[]; isPlatformAdmin?: boolean };
 
 export function useAuth() {
   const { data: user, isLoading, error } = useQuery<SafeUser | null>({
@@ -26,7 +26,13 @@ export function useAuth() {
       const res = await apiRequest("POST", "/api/auth/login", { email, password });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (user: SafeUser) => {
+      // Browser query data can contain rows from the previously signed-in
+      // clinic. Clear it before the new tenant's screens load.
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "/api/auth/me",
+      });
+      queryClient.setQueryData(["/api/auth/me"], user);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
   });
@@ -50,7 +56,7 @@ export function useAuth() {
     user: user ?? null,
     isLoading,
     isAuthenticated: !!user,
-    isAdmin: user?.role === "superadmin",
+    isAdmin: user?.isPlatformAdmin === true,
     hasPermission,
     login: loginMutation,
     logout: logoutMutation,

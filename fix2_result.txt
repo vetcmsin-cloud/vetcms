@@ -1,0 +1,8 @@
+﻿Step 1 done: Imports fixed
+Step 2 done: OP/IP fields added to type
+Step 3 done: OP/IP in CreateInvoiceDialog
+Step 4 done: OP handling in ViewInvoiceDialog
+Step 5 done: A5 landscape support
+Step 6 done: Export ViewInvoiceDialog
+All done! File saved.
+File size: 82670 chars

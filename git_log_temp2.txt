@@ -1,0 +1,20 @@
+﻿11f7d15 2026-03-06 Fix age months display and storage
+f927983 2026-03-02 Fix: role dropdown now loads all roles dynamically from database
+c8a4e7d 2026-03-02 Fix: new users with empty permissions[] now correctly inherit role permissions
+ccadbf6 2026-03-02 Update VPS script: GitHub pull method
+66747d3 2026-03-02 Make only First Name required for owner; Email and Last Name optional
+7fc2ad5 2026-02-10 Add comprehensive invoice design and preview tools for administrators
+500cba3 2026-02-10 Published your App
+a3c71ee 2026-02-10 Saved progress at the end of the loop
+848135c 2026-02-10 Allow receptionists to mark invoices as paid and improve dialog close behavior
+d4f8638 2026-02-10 Published your App
+fc94b02 2026-02-10 Saved progress at the end of the loop
+b90af95 2026-02-10 Add a consult button to the doctor dashboard for viewing patient records
+6f96421 2026-02-10 Saved progress at the end of the loop
+4685e66 2026-02-10 Add ability to capture and view patient photos in full screen
+abcf5a4 2026-02-10 Published your App
+ff5e312 2026-02-10 Saved progress at the end of the loop
+b0d0803 2026-02-10 Add ability to upload and manage clinic logo and background images
+7094939 2026-02-10 Add functionality to upload and manage clinic images
+78ae80b 2026-02-10 Improve login reliability and session management for production
+7d53451 2026-02-10 Published your App

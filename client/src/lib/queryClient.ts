@@ -2,8 +2,22 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let errorMessage = res.statusText;
+    let text = "";
+    try {
+      text = await res.text();
+      const data = JSON.parse(text);
+      if (data && data.message) {
+        errorMessage = data.message;
+      } else if (text) {
+        errorMessage = text;
+      }
+    } catch (e) {
+      if (text) {
+        errorMessage = text;
+      }
+    }
+    throw new Error(errorMessage);
   }
 }
 
@@ -14,10 +28,18 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      // Prevent browser from serving a cached response for mutation requests
+      "Cache-Control": "no-store",
+    },
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  if (res.status === 401) {
+    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  }
 
   await throwIfResNotOk(res);
   return res;
@@ -31,6 +53,12 @@ export const getQueryFn: <T>(options: {
     async ({ queryKey }) => {
       const res = await fetch(queryKey.join("/") as string, {
         credentials: "include",
+        // Prevent the browser from ever serving a stale cached HTTP response
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-store",
+          "Pragma": "no-cache",
+        },
       });
 
       if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -46,9 +74,10 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: true,   // Refetch when user switches back to this tab
-      refetchOnMount: true,         // Refetch every time a component mounts (page open)
-      staleTime: 0,                 // All data is immediately stale — always fetch fresh
+      refetchOnWindowFocus: false,  // Don't refetch just because user clicked back to tab
+      refetchOnMount: true,         // Refetch when data is stale and component mounts
+      staleTime: 2 * 60 * 1000,    // Data is fresh for 2 minutes — reduces redundant fetches across components
+      gcTime: 10 * 60 * 1000,      // Keep unused cache in memory for 10 minutes — eliminates re-fetch on page nav
       retry: false,
     },
     mutations: {
@@ -56,3 +85,4 @@ export const queryClient = new QueryClient({
     },
   },
 });
+

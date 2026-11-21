@@ -1,0 +1,47 @@
+﻿Step 1 done: getPrintStyles replaced
+Step 2a done: forcePreview prop removed from signature
+Step 2b done: isEditing init fixed
+powershell : The -ireplace 
+operator 
+At line:1 char:1
++ powershell 
+-ExecutionPolicy Bypass 
+-File "c:\Users\HOME\Deskto
+p\Vetin ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: (The  
+   -ireplace operator :S   
+ tring) [], RemoteExcep    
+tion
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+allows only two elements 
+to follow it, not 6.
+At C:\Users\HOME\Desktop\Ve
+tinary Clinic Management\fi
+x_print.ps1:166 char:21
++ $content = $content 
+-replace '\} else if 
+\(forcePreview\) 
+\{\r?\n\s+s ...
++                     
+~~~~~~~~
+    + CategoryInfo         
+     : InvalidOperation:   
+  (System.Object[]:Objec   
+ t[]) [], RuntimeExcept    
+ion
+    + FullyQualifiedErrorI 
+   d : BadReplaceArgument
+ 
+Step 2c done: useEffect forcePreview logic removed
+WARNING: Could not find ViewInvoiceDialog return block markers. startIdx=35992 endIdx=-1
+Trying alternate markers...
+Step 4 done: viewInvoiceMode removed from AdminBilling
+Step 5 done: accounts.tsx fixed
+All done! File saved.
+File size: 101581 chars

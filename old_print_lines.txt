@@ -1,0 +1,20 @@
+﻿42: import html2canvas from "html2canvas";
+43: import jsPDF from "jspdf";
+383: function getPrintStyles(printerType: string) {
+391: #printable-invoice-container {
+398: #printable-invoice-container * { visibility: visible; }
+411: #printable-invoice-container {
+418: #printable-invoice-container * { visibility: visible; }
+430: #printable-invoice-container {
+444: #printable-invoice-container > div {
+450: #printable-invoice-container * { visibility: visible; }
+458: #printable-invoice-container {
+472: #printable-invoice-container * { visibility: visible; }
+483: #printable-invoice-container {
+498: #printable-invoice-container * {
+955: <style>{getPrintStyles(clinicSettings?.printerType || "a4")}</style>
+959: <div id="printable-invoice-container" className="hidden print:block">
+1150: html2canvas(element, { scale: 2, useCORS: true }).then(canvas => {
+1152: const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+1162: <Button variant="outline" onClick={() => window.print()}>
+1585: setTimeout(() => window.print(), 500);

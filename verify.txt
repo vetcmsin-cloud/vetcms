@@ -1,0 +1,10 @@
+﻿2: import { createPortal } from "react-dom";
+398: position: absolute;
+418: position: absolute;
+465: position: absolute;
+490: position: absolute;
+669: export function ViewInvoiceDialog({
+964: {createPortal(
+965: <div id="printable-invoice-container" className="hidden print:block">
+1168: <Button variant="outline" onClick={() => window.print()}>
+1591: setTimeout(() => window.print(), 500);

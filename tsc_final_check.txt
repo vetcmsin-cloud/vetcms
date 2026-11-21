@@ -1,0 +1,48 @@
+﻿
+src/pages/accounts.tsx(374,
+34): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(374,
+57): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(375,
+34): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(375,
+57): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(390,
+34): error TS2339: 
+Property 'billedByName' 
+does not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(391,
+34): error TS2339: 
+Property 'billedByName' 
+does not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(820,
+66): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(820,
+91): error TS2339: 
+Property 'createdAt' does 
+not exist on type 
+'InvoiceWithMeta'.
+src/pages/accounts.tsx(841,
+125): error TS2339: 
+Property 'billedByName' 
+does not exist on type 
+'InvoiceWithMeta'.
+
+

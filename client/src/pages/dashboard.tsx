@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { format } from "date-fns";
+import { formatTime12h } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +27,8 @@ import { PatientChart } from "@/components/patient-chart";
 import { useAuth } from "@/hooks/use-auth";
 import { AddAppointmentDialog } from "@/components/add-appointment-dialog";
 import { Link } from "wouter";
+import { openNewInvoiceTerminal } from "@/components/NewInvoiceTerminal";
+import { Plus, Receipt } from "lucide-react";
 
 function StatCard({
   title,
@@ -91,38 +94,51 @@ export default function Dashboard() {
   const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
 
-  const { data: pets, isLoading: petsLoading } = useQuery<Pet[]>({
-    queryKey: ["/api/pets"],
+  const today = format(new Date(), "yyyy-MM-dd");
+
+  // Single lightweight endpoint replaces 3 heavy full-table-dump queries
+  const { data: summary, isLoading: summaryLoading } = useQuery<{
+    counts: {
+      totalPets: number;
+      totalOwners: number;
+      totalAppointments: number;
+      todayScheduled: number;
+      todayPending: number;
+      todayCompleted: number;
+      todayCancelled: number;
+    };
+    upcomingAppointments: Appointment[];
+    recentPets: Pet[];
+    recentOwners: Owner[];
+    appointmentPets: Pet[];
+    appointmentOwners: Owner[];
+  }>({
+    queryKey: ["/api/dashboard/summary"],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/summary?date=${today}`, {
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-store",
+          "Pragma": "no-cache",
+        },
+      });
+      if (!res.ok) throw new Error("Failed to fetch dashboard summary");
+      return res.json();
+    },
   });
-  const { data: owners, isLoading: ownersLoading } = useQuery<Owner[]>({
-    queryKey: ["/api/owners"],
-  });
-  const { data: appointments, isLoading: appointmentsLoading } = useQuery<Appointment[]>({
-    queryKey: ["/api/appointments"],
-  });
+
   const { data: settings } = useQuery<Record<string, string>>({
     queryKey: ["/api/clinic-settings"],
   });
 
-  const today = format(new Date(), "yyyy-MM-dd");
-
-  const todayAppointments = appointments?.filter((a) => a.date === today && a.status !== "cancelled") || [];
-  const pendingAppointments = appointments?.filter((a) => a.status === "scheduled" && a.date === today) || [];
-  const completedAppointments = appointments?.filter((a) => a.status === "completed" && a.date === today) || [];
-  const cancelledAppointments = appointments?.filter((a) => a.status === "cancelled" && a.date === today) || [];
-  const upcomingAppointments = appointments
-    ?.filter((a) => a.date >= today && a.status === "scheduled")
-    .sort((a, b) => {
-      // Today always before future days
-      const aIsToday = a.date === today;
-      const bIsToday = b.date === today;
-      if (aIsToday && !bIsToday) return -1;
-      if (!aIsToday && bIsToday) return 1;
-      // Within the same day: earliest time first (FIFO - ascending)
-      if (a.date === b.date) return a.time.localeCompare(b.time);
-      // Different future days: earlier date first (ascending)
-      return a.date.localeCompare(b.date);
-    }) || [];
+  const counts = summary?.counts || { totalPets: 0, totalOwners: 0, totalAppointments: 0, todayScheduled: 0, todayPending: 0, todayCompleted: 0, todayCancelled: 0 };
+  const todayAppointments = summary?.upcomingAppointments?.filter(a => a.date === today) || [];
+  const upcomingAppointments = summary?.upcomingAppointments || [];
+  const recentPets = summary?.recentPets || [];
+  const aptPets = summary?.appointmentPets || [];
+  const aptOwners = summary?.appointmentOwners || [];
+  const recentOwners = summary?.recentOwners || [];
 
   // Group upcoming appointments by date
   const upcomingByDate = upcomingAppointments.reduce<Record<string, typeof upcomingAppointments>>((acc, apt) => {
@@ -136,23 +152,22 @@ export default function Dashboard() {
     return a.localeCompare(b);
   });
 
-  const formatDateLabel = (dateStr: string) => {
-    if (dateStr === today) return "Today";
-    const tomorrow = format(new Date(new Date().setDate(new Date().getDate() + 1)), "yyyy-MM-dd");
-    if (dateStr === tomorrow) return "Tomorrow";
-    return format(new Date(dateStr), "EEE, MMM d");
-  };
-
-  const recentPets = pets?.slice(-5).reverse() || [];
-
   const canConsult = user?.role === "doctor" || user?.role === "admin" || user?.role === "superadmin";
 
   const handleConsult = (petId: number) => {
-    const pet = pets?.find((p) => p.id === petId);
+    const pet = aptPets?.find((p) => p.id === petId);
     if (pet) {
       setSelectedPet(pet);
       setChartOpen(true);
     }
+  };
+
+  const formatDateLabel = (dateStr: string) => {
+    if (dateStr === today) return "Today";
+    const tomorrow = format(new Date(new Date().setDate(new Date().getDate() + 1)), "yyyy-MM-dd");
+    if (dateStr === tomorrow) return "Tomorrow";
+    // Append T00:00:00 so JS parses as local time (not UTC midnight which shifts date in IST)
+    return format(new Date(dateStr + "T00:00:00"), "EEE, MMM d");
   };
 
   return (
@@ -164,43 +179,50 @@ export default function Dashboard() {
             Welcome back to {settings?.clinicName || "PetPoint Pro"}. Here's your clinic overview.
           </p>
         </div>
-        <AddAppointmentDialog pets={pets || []} owners={owners || []} />
+        <div className="flex items-center gap-2">
+          <Button onClick={openNewInvoiceTerminal} variant="outline" className="gap-2">
+            <Plus className="w-4 h-4" />
+            <Receipt className="w-4 h-4" />
+            New Invoice
+          </Button>
+          <AddAppointmentDialog />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard
           title="Today's Appointments"
-          value={todayAppointments.length}
+          value={counts.todayScheduled}
           icon={CalendarCheck}
-          loading={appointmentsLoading}
+          loading={summaryLoading}
           testId="stat-today"
         />
         <StatCard
           title="Consultation Pending"
-          value={pendingAppointments.length}
+          value={counts.todayPending}
           icon={Clock}
-          loading={appointmentsLoading}
+          loading={summaryLoading}
           testId="stat-pending"
         />
         <StatCard
           title="Consultation Completed"
-          value={completedAppointments.length}
+          value={counts.todayCompleted}
           icon={CheckCircle}
-          loading={appointmentsLoading}
+          loading={summaryLoading}
           testId="stat-completed"
         />
         <StatCard
           title="Cancelled Appointments"
-          value={cancelledAppointments.length}
+          value={counts.todayCancelled}
           icon={XCircle}
-          loading={appointmentsLoading}
+          loading={summaryLoading}
           testId="stat-cancelled"
         />
         <StatCard
           title="Total Appointments"
-          value={appointments?.length ?? 0}
+          value={counts.totalAppointments}
           icon={CalendarDays}
-          loading={appointmentsLoading}
+          loading={summaryLoading}
           testId="stat-appointments"
         />
       </div>
@@ -208,19 +230,26 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Clock className="w-4 h-4 text-primary" />
-              Upcoming Appointments
-            </CardTitle>
-            <Badge variant="secondary" className="text-xs">
-              {upcomingAppointments.length} upcoming
-            </Badge>
-            <Badge variant="outline" className="text-xs">
-              {upcomingDates.length} {upcomingDates.length === 1 ? "day" : "days"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" />
+                Upcoming Appointments
+              </CardTitle>
+              <Badge variant="secondary" className="text-xs hidden sm:inline-flex">
+                {upcomingAppointments.length} upcoming
+              </Badge>
+              <Badge variant="outline" className="text-xs hidden sm:inline-flex">
+                {upcomingDates.length} {upcomingDates.length === 1 ? "day" : "days"}
+              </Badge>
+            </div>
+            <Link href="/appointments">
+              <Button variant="ghost" size="sm" className="h-8 text-xs font-medium text-primary hover:text-primary">
+                View All
+              </Button>
+            </Link>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            {appointmentsLoading ? (
+            {summaryLoading ? (
               <div className="flex flex-col gap-3">
                 {[1, 2, 3].map((i) => (
                   <Skeleton key={i} className="h-14 w-full" />
@@ -250,8 +279,8 @@ export default function Dashboard() {
                     </div>
                     {/* Appointments for this date */}
                     {upcomingByDate[dateStr].map((apt) => {
-                      const pet = pets?.find((p) => p.id === apt.petId);
-                      const owner = owners?.find((o) => o.id === apt.ownerId);
+                      const pet = aptPets?.find((p) => p.id === apt.petId);
+                      const owner = aptOwners?.find((o) => o.id === apt.ownerId);
                       return (
                         <div
                           key={apt.id}
@@ -267,6 +296,9 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium truncate">{pet?.name || "Unknown"}</span>
+                              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono text-muted-foreground leading-none">
+                                APT-{apt.id.toString().padStart(4, "0")}
+                              </span>
                               <Badge variant={statusColor(apt.status) as any} className="text-[10px]">
                                 {apt.status}
                               </Badge>
@@ -277,7 +309,7 @@ export default function Dashboard() {
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <div className="text-right">
-                              <div className="text-xs font-medium">{apt.time}</div>
+                              <div className="text-xs font-medium">{formatTime12h(apt.time)}</div>
                             </div>
                             {canConsult && (
                               <Button
@@ -304,16 +336,23 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" />
-              Recent Patients
-            </CardTitle>
-            <Badge variant="secondary" className="text-xs">
-              {recentPets.length} recent
-            </Badge>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                Recent Patients
+              </CardTitle>
+              <Badge variant="secondary" className="text-xs hidden sm:inline-flex">
+                {recentPets.length} recent
+              </Badge>
+            </div>
+            <Link href="/patients">
+              <Button variant="ghost" size="sm" className="h-8 text-xs font-medium text-primary hover:text-primary">
+                View All
+              </Button>
+            </Link>
           </CardHeader>
           <CardContent className="px-5 pb-5">
-            {petsLoading ? (
+            {summaryLoading ? (
               <div className="flex flex-col gap-3">
                 {[1, 2, 3].map((i) => (
                   <Skeleton key={i} className="h-14 w-full" />
@@ -327,7 +366,7 @@ export default function Dashboard() {
             ) : (
               <div className="flex flex-col gap-2">
                 {recentPets.map((pet) => {
-                  const owner = owners?.find((o) => o.id === pet.ownerId);
+                  const owner = recentOwners?.find((o) => o.id === pet.ownerId);
                   return (
                     <div
                       key={pet.id}
@@ -370,7 +409,7 @@ export default function Dashboard() {
         pet={selectedPet}
         open={chartOpen}
         onOpenChange={setChartOpen}
-        owners={owners || []}
+        owners={recentOwners || []}
         defaultTab="medical-records"
       />
     </div>

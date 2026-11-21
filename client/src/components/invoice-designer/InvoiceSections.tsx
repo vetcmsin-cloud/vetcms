@@ -30,7 +30,7 @@ interface SectionProps {
 export function InvoiceHeader({ settings, logoPx = 48, section }: SectionProps) {
     const headerColor = settings.invoiceHeaderColor || "#0f766e";
     const headerTextColor = settings.invoiceHeaderTextColor || "#ffffff";
-    const clinicLogoUrl = settings.clinicLogoUrl || "";
+    const clinicLogoUrl = settings.clinicLogoUrl || settings.invoiceLogoImage || "";
     // const logoPosition = settings.invoiceLogoPosition || "left"; // Overridden by custom design often
     const clinicName = settings.clinicName || "Clinic Name";
     const clinicAddress = settings.clinicAddress || "";
@@ -137,7 +137,7 @@ export function InvoiceGrid({ invoice, settings }: SectionProps) {
     const accentColor = settings.invoiceAccentColor || "#1E88E5";
 
     return (
-        <div className="px-8 py-6 grid grid-cols-2 gap-12">
+        <div className="px-8 py-3 grid grid-cols-2 gap-12">
             <div>
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: accentColor }}>Bill To:</p>
                 <p className="font-bold text-lg text-foreground">{invoice.ownerName}</p>
@@ -147,7 +147,9 @@ export function InvoiceGrid({ invoice, settings }: SectionProps) {
             <div className="text-right">
                 <div className="grid grid-cols-[auto_auto] justify-end gap-x-6 gap-y-1.5 p-4 rounded-lg bg-gray-50/50">
                     <span className="text-xs font-bold uppercase tracking-wider text-right" style={{ color: accentColor }}>Invoice No:</span>
-                    <span className="text-sm font-bold text-right font-mono" style={{ color: accentColor }}>{invoice.invoiceNumber}</span>
+                    <span className="text-sm font-bold text-right font-mono" style={{ color: accentColor }}>
+                        {invoice.invoiceNumber?.startsWith("#TEMP-") ? "(New Draft)" : invoice.invoiceNumber}
+                    </span>
 
                     <span className="text-xs font-semibold text-muted-foreground text-right">Date:</span>
                     <span className="text-sm text-right font-medium">{formatDate(invoice.date)}</span>
@@ -167,9 +169,12 @@ export function InvoiceTable({ invoice, settings, startIndex = 0 }: SectionProps
     const colQuantity = settings.invoiceColQuantity || "Qty / Hr";
     const colPrice = settings.invoiceColPrice || "Price";
     const colTotal = settings.invoiceColTotal || "Subtotal";
+    
+    // Determine dynamic gap using settings state or defaults
+    const rowGapStr = settings.invoiceRowGap || "6";
 
     return (
-        <div style={{ padding: "0 32px", marginBottom: "16px", marginTop: "16px" }}>
+        <div style={{ padding: "0 32px", marginBottom: "8px", marginTop: "8px" }}>
             <div style={{ overflow: "hidden" }}>
                 <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: "13px" }}>
                     <colgroup>
@@ -181,11 +186,11 @@ export function InvoiceTable({ invoice, settings, startIndex = 0 }: SectionProps
                     </colgroup>
                     <thead>
                         <tr style={{ borderTop: `2px solid ${accentColor}`, borderBottom: `2px solid ${accentColor}` }}>
-                            <th style={{ textAlign: "left", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>No.</th>
-                            <th style={{ textAlign: "left", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colDescription}</th>
-                            <th style={{ textAlign: "right", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colPrice}</th>
-                            <th style={{ textAlign: "center", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colQuantity}</th>
-                            <th style={{ textAlign: "right", padding: "10px 6px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colTotal}</th>
+                            <th style={{ textAlign: "left", padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6b7280" }}>No.</th>
+                            <th style={{ textAlign: "left", padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colDescription}</th>
+                            <th style={{ textAlign: "right", padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colPrice}</th>
+                            <th style={{ textAlign: "center", padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colQuantity}</th>
+                            <th style={{ textAlign: "right", padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: accentColor }}>{colTotal}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -195,19 +200,19 @@ export function InvoiceTable({ invoice, settings, startIndex = 0 }: SectionProps
                                 const rowBg = isEven ? "#f9fafb" : "#ffffff";
                                 return (
                                     <tr key={item.id} style={{ borderBottom: "1px solid #d1d5db", backgroundColor: rowBg }}>
-                                        <td style={{ padding: "10px 6px", fontSize: "11px", fontWeight: 500, color: "#9ca3af", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                        <td style={{ padding: `${rowGapStr}px 6px`, fontSize: "11px", fontWeight: 500, color: "#9ca3af", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
                                             {(startIndex + idx + 1).toString().padStart(2, '0')}.
                                         </td>
-                                        <td style={{ padding: "10px 6px", fontWeight: 500, verticalAlign: "top", wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "normal", backgroundColor: rowBg }}>
+                                        <td style={{ padding: `${rowGapStr}px 6px`, fontWeight: 500, verticalAlign: "top", wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "normal", backgroundColor: rowBg }}>
                                             {item.description}
                                         </td>
-                                        <td style={{ padding: "10px 6px", textAlign: "right", color: "#6b7280", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                        <td style={{ padding: `${rowGapStr}px 6px`, textAlign: "right", color: "#6b7280", verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
                                             {formatCurrency(item.unitPrice)}
                                         </td>
-                                        <td style={{ padding: "10px 6px", textAlign: "center", color: "#6b7280", verticalAlign: "top", backgroundColor: rowBg }}>
+                                        <td style={{ padding: `${rowGapStr}px 6px`, textAlign: "center", color: "#6b7280", verticalAlign: "top", backgroundColor: rowBg }}>
                                             {item.quantity}
                                         </td>
-                                        <td style={{ padding: "10px 6px", textAlign: "right", fontWeight: 600, verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
+                                        <td style={{ padding: `${rowGapStr}px 6px`, textAlign: "right", fontWeight: 600, verticalAlign: "top", whiteSpace: "nowrap", backgroundColor: rowBg }}>
                                             {formatCurrency(item.total)}
                                         </td>
                                     </tr>
@@ -225,19 +230,27 @@ export function InvoiceTable({ invoice, settings, startIndex = 0 }: SectionProps
 
 export function InvoiceTotals({ invoice, settings }: SectionProps) {
     const accentColor = settings.invoiceAccentColor || "#1E88E5";
+    const discountAmt = parseFloat(String(invoice.discount || "0")) || 0;
+    const taxAmt = parseFloat(String(invoice.tax || "0")) || 0;
 
     return (
         <div className="px-8 py-2">
             <div className="flex justify-end">
                 <div className="w-1/2 min-w-[300px]">
-                    <div className="flex justify-between py-3">
+                    <div className="flex justify-between py-3 border-b border-dashed">
                         <span className="text-sm font-medium text-muted-foreground">Subtotal</span>
                         <span className="text-sm font-bold text-foreground">{formatCurrency(invoice.subtotal)}</span>
                     </div>
-                    {invoice.tax > 0 && (
+                    {taxAmt > 0 && (
                         <div className="flex justify-between py-2 border-b border-dashed">
                             <span className="text-sm font-medium text-muted-foreground">Tax</span>
                             <span className="text-sm font-medium text-foreground">{formatCurrency(invoice.tax)}</span>
+                        </div>
+                    )}
+                    {discountAmt > 0 && (
+                        <div className="flex justify-between py-2 border-b border-dashed">
+                            <span className="text-sm font-medium text-muted-foreground">Discount</span>
+                            <span className="text-sm font-medium text-rose-600">− {formatCurrency(invoice.discount)}</span>
                         </div>
                     )}
                     <div className="flex justify-between items-center py-4 border-b-2 border-black/80 mt-2">
@@ -268,7 +281,23 @@ export function InvoiceText({ section, invoice, settings }: SectionProps) {
 }
 
 export function InvoiceSpacer({ section }: { section?: InvoiceSection }) {
-    return <div style={{ height: section?.styles?.height ? parseInt(section.styles.height) : 20 }} />;
+    return (
+        <div 
+            className="flex items-center w-full" 
+            style={{ 
+                height: section?.styles?.height ? parseInt(section.styles.height) : 20 
+            }}
+        >
+            <div 
+                className="w-full"
+                style={{
+                    borderTopWidth: section?.styles?.borderTopWidth || '2px',
+                    borderTopColor: section?.styles?.borderTopColor || '#d1d5db',
+                    borderTopStyle: (section?.styles?.borderTopStyle as any) || 'dashed',
+                }}
+            />
+        </div>
+    );
 }
 
 export function InvoicePayment({ invoice, settings }: SectionProps) {
@@ -323,7 +352,6 @@ export function InvoicePayment({ invoice, settings }: SectionProps) {
     );
 }
 
-
 export function InvoiceFooter({ settings }: SectionProps) {
     const showFooter = settings.invoiceShowFooter !== "false";
     const footerText = settings.footerText || "";
@@ -349,4 +377,3 @@ export function InvoiceStamp({ settings }: SectionProps) {
         </div>
     );
 }
-

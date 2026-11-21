@@ -1,0 +1,54 @@
+[
+  {
+    "id": 5,
+    "name": "Neutrophils"
+  },
+  {
+    "id": 6,
+    "name": "Lymphocytes"
+  },
+  {
+    "id": 7,
+    "name": "Monocytes"
+  },
+  {
+    "id": 8,
+    "name": "Eosinophils"
+  },
+  {
+    "id": 9,
+    "name": "Basophils"
+  },
+  {
+    "id": 45,
+    "name": "PCV (HCT)"
+  },
+  {
+    "id": 47,
+    "name": "MCV"
+  },
+  {
+    "id": 48,
+    "name": "MCH"
+  },
+  {
+    "id": 44,
+    "name": "Hemoglobin (Hb)"
+  },
+  {
+    "id": 3,
+    "name": "RBC"
+  },
+  {
+    "id": 49,
+    "name": "MCHC"
+  },
+  {
+    "id": 4,
+    "name": "WBC"
+  },
+  {
+    "id": 46,
+    "name": "Platelet Count"
+  }
+]

@@ -44,6 +44,7 @@ const permissionGroups: Record<string, string[]> = {
   "Billing": ["billing.view", "billing.create", "billing.edit", "billing.delete"],
   "Fee Structure": ["fee_structure.view", "fee_structure.manage"],
   "Inventory": ["inventory.view", "inventory.manage"],
+  "Purchase Orders & Invoices": ["purchase.view", "purchase.create", "purchase.edit", "purchase.delete", "purchase.manage"],
   "Reports": ["reports.view"],
   "Accounts": ["accounts.view", "accounts.manage"],
   "User Management": ["user_management.view", "user_management.manage"],

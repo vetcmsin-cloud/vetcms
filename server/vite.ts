@@ -25,7 +25,6 @@ export async function setupVite(server: Server, app: Express) {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        process.exit(1);
       },
     },
     server: serverOptions,
@@ -35,8 +34,17 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("/{*path}", async (req, res, next) => {
+  app.use(async (req, res, next) => {
+    if (req.method !== "GET") {
+      return next();
+    }
+
     const url = req.originalUrl;
+
+    // Ignore API routes and files (anything with a dot)
+    if (url.startsWith("/api") || url.includes(".")) {
+      return next();
+    }
 
     try {
       const clientTemplate = path.resolve(

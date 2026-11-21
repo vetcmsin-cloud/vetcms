@@ -53,13 +53,22 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
     const isA5 = effectivePrinterType.startsWith("a5");
     const isA5Landscape = effectivePrinterType === "a5_landscape";
 
-    let bgImage = settings.invoiceBackgroundImage;
+    const activePrintDesign = settings.activePrintDesign || "print1";
+
+    // Pick the correct background image base key for the active print design
+    let bgBaseKey = "invoiceBackgroundImage";
+    if (activePrintDesign === "print2") bgBaseKey = "invoiceBackgroundImage_print2";
+    else if (activePrintDesign === "print3") bgBaseKey = "invoiceBackgroundImage_print3";
+
+    let bgImage = settings[bgBaseKey] || settings.invoiceBackgroundImage;
     if (isA5) {
-        if (isA5Landscape && settings.invoiceBackgroundImage_a5_landscape) {
+        if (isA5Landscape && settings[`${bgBaseKey}_a5_landscape`]) {
+            bgImage = settings[`${bgBaseKey}_a5_landscape`];
+        } else if (settings[`${bgBaseKey}_a5`]) {
+            bgImage = settings[`${bgBaseKey}_a5`];
+        } else if (isA5Landscape && settings.invoiceBackgroundImage_a5_landscape) {
             bgImage = settings.invoiceBackgroundImage_a5_landscape;
         } else if (settings.invoiceBackgroundImage_a5) {
-            // fallback to portrait a5 if landscape bg is missing, or just normal a5
-            // Actually, if it's landscape and has no landscape bg, it'll fallback to a5_portrait bg, then a4.
             bgImage = settings.invoiceBackgroundImage_a5;
         }
     }
@@ -69,12 +78,29 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
     const sections: InvoiceSection[] = useMemo(() => {
         if (layout) return layout;
         try {
-            let layoutStr = settings.invoiceLayout;
-            if (isA5Landscape && settings.invoiceLayout_a5_landscape) {
-                layoutStr = settings.invoiceLayout_a5_landscape;
-            } else if (isA5 && settings.invoiceLayout_a5) {
-                layoutStr = settings.invoiceLayout_a5;
+            // Determine active print design
+            const activePrintDesign = settings.activePrintDesign || "print1";
+
+            // Pick the correct base layout key for the print design
+            let baseLayoutKey = "invoiceLayout";
+            if (activePrintDesign === "print2") baseLayoutKey = "invoiceLayout_print2";
+            else if (activePrintDesign === "print3") baseLayoutKey = "invoiceLayout_print3";
+
+            // Apply A5 suffix
+            let layoutStr = settings[baseLayoutKey];
+            if (isA5Landscape && settings[`${baseLayoutKey}_a5_landscape`]) {
+                layoutStr = settings[`${baseLayoutKey}_a5_landscape`];
+            } else if (isA5 && settings[`${baseLayoutKey}_a5`]) {
+                layoutStr = settings[`${baseLayoutKey}_a5`];
             }
+
+            // Fallback to print1 layout if print2/print3 layout is not set
+            if (!layoutStr && baseLayoutKey !== "invoiceLayout") {
+                if (isA5Landscape && settings.invoiceLayout_a5_landscape) layoutStr = settings.invoiceLayout_a5_landscape;
+                else if (isA5 && settings.invoiceLayout_a5) layoutStr = settings.invoiceLayout_a5;
+                else layoutStr = settings.invoiceLayout;
+            }
+
             return JSON.parse(layoutStr || "[]");
         } catch {
             return [];
@@ -88,7 +114,8 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
 
     const getFieldValue = (key: InvoiceFieldKey) => {
         switch (key) {
-            case "invoiceNumber": return invoice?.invoiceNumber || "";
+            case "invoiceNumber": 
+                return (invoice?.invoiceNumber?.startsWith("#TEMP-")) ? "(New Draft)" : (invoice?.invoiceNumber || "");
             case "date": return formatDate(invoice?.date);
             case "dueDate": return formatDate(invoice?.dueDate);
             case "customerName": return invoice?.billToName || invoice?.recipientName || invoice?.ownerName || "Guest";
@@ -109,6 +136,7 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
             case "regNumber": return settings.registrationNumber;
             case "subtotal": return formatCurrency(invoice?.subtotal || 0);
             case "tax": return formatCurrency(invoice?.taxTotal || invoice?.tax || 0);
+            case "discount": return formatCurrency(invoice?.discount || 0);
             case "total": return formatCurrency(invoice?.total || 0);
             case "upiId": return settings.upiId;
             case "upiPhone": return settings.upiPhone;
@@ -146,21 +174,27 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
                     <div
                         key={pageIndex}
                         className={cn(
-                            "relative bg-white overflow-hidden mx-auto print:break-after-page",
+                            "relative bg-white mx-auto print:bg-transparent",
+                            !isLastPage && "print:break-after-page",
                             className
                         )}
                         style={{
                             width: isA5Landscape ? "794px" : (isA5 ? "559px" : "794px"),
-                            minHeight: isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px"),
-                            height: className?.includes("min-h-0") ? "100%" : (isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px")),
-                            backgroundImage: bgImage ? `url(${bgImage})` : undefined,
-                            backgroundSize: "100% 100%",
-                            backgroundPosition: "top left",
-                            backgroundRepeat: "no-repeat",
+                            height: isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px"),
+                            maxHeight: isA5Landscape ? "559px" : (isA5 ? "794px" : "1123px"),
+                            overflow: "hidden",
                             position: "relative"
                         }}
-
                     >
+                        {bgImage && (
+                            <img 
+                                src={bgImage} 
+                                alt="" 
+                                className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+                                style={{ zIndex: 0 }} 
+                            />
+                        )}
+
                         {(() => {
                             const ITEM_LIST_FIELDS: InvoiceFieldKey[] = ["serialNumber", "description", "quantity", "unitPrice", "lineTotal"];
                             const visibleSections = sections.filter(s => s.isVisible);
@@ -175,9 +209,15 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
 
                                         // Conditional Rendering Logic
                                         if (!isLastPage) {
-                                            // Hide footer elements on non-last pages
-                                            if (FOOTER_SECTIONS.includes(section.type)) return null;
-                                            if (section.type === "field" && section.field && FOOTER_FIELDS.includes(section.field)) return null;
+                                            // If the field has an explicit printSection, use it as the authority.
+                                            if (section.printSection === "footer") return null;
+
+                                            // If no explicit printSection, fall back to legacy hardcoded lists.
+                                            if (!section.printSection) {
+                                                if (FOOTER_SECTIONS.includes(section.type)) return null;
+                                                if (section.type === "field" && section.field && FOOTER_FIELDS.includes(section.field)) return null;
+                                            }
+                                            // printSection === "header" | "body" → always show (no filtering needed)
                                         }
 
                                         return (
@@ -191,6 +231,10 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
                                                     fontSize: section.styles?.fontSize,
                                                     fontWeight: section.styles?.fontWeight,
                                                     color: section.styles?.color,
+                                                    paddingTop: section.styles?.paddingTop,
+                                                    paddingBottom: section.styles?.paddingBottom,
+                                                    paddingLeft: section.styles?.paddingLeft,
+                                                    paddingRight: section.styles?.paddingRight,
                                                     zIndex: 10
                                                 }}
                                                 className={cn(
@@ -235,23 +279,24 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
                                     {/* DYNAMIC LIST FIELDS RENDERER - Synthesizes independent fields into a dynamic row structure! */}
                                     {listSections.length > 0 && pageInvoice?.items?.length > 0 && (() => {
                                         // The entire list starts exactly where the highest placed field was placed
-                                        const listMinY = Math.min(...listSections.map(s => s.y));
+                                        const listMinY = Math.min(...listSections.map(s => s.y || 0));
                                         return (
                                             <div style={{ position: "absolute", top: `${listMinY}px`, left: 0, width: "100%", zIndex: 10 }}>
                                                 {pageInvoice.items.map((item: any, i: number) => {
                                                     // Sort sections left-to-right to layout them sequentially using flex margins
-                                                    const sortedSections = [...listSections].sort((a, b) => a.x - b.x);
+                                                    const sortedSections = [...listSections].sort((a, b) => (a.x || 0) - (b.x || 0));
                                                     return (
                                                         <div key={i} style={{
                                                             display: "flex",
                                                             width: "100%",
                                                             borderBottom: "1px dashed #e5e7eb",
-                                                            paddingTop: "6px",
-                                                            paddingBottom: "6px"
+                                                            paddingTop: `${settings?.invoiceRowGap || '6'}px`,
+                                                            paddingBottom: `${settings?.invoiceRowGap || '6'}px`
                                                         }}>
                                                             {sortedSections.map((section, idx) => {
-                                                                const prevRight = idx === 0 ? 0 : sortedSections[idx - 1].x + sortedSections[idx - 1].width;
-                                                                const marginLeft = Math.max(0, section.x - prevRight);
+                                                                const prevSection = idx === 0 ? null : sortedSections[idx - 1];
+                                                                const prevRight = prevSection ? (prevSection.x || 0) + (prevSection.width || 0) : 0;
+                                                                const marginLeft = Math.max(0, (section.x || 0) - prevRight);
 
                                                                 let v = "";
                                                                 switch (section.field) {
@@ -269,6 +314,10 @@ export function InvoiceRenderer({ settings, invoice, layout, className }: Invoic
                                                                         fontSize: section.styles?.fontSize,
                                                                         fontWeight: section.styles?.fontWeight as any || undefined,
                                                                         color: section.styles?.color,
+                                                                        paddingTop: section.styles?.paddingTop,
+                                                                        paddingBottom: section.styles?.paddingBottom,
+                                                                        paddingLeft: section.styles?.paddingLeft,
+                                                                        paddingRight: section.styles?.paddingRight,
                                                                         wordBreak: "break-word",
                                                                         whiteSpace: "pre-wrap",
                                                                         textAlign: section.styles?.textAlign as any || "left",

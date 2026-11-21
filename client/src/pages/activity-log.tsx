@@ -293,7 +293,7 @@ export default function ActivityLogPage() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All types</SelectItem>
-                                    {[...new Set(ENTITY_TYPES)].sort().map((t) => (
+                                    {Array.from(new Set(ENTITY_TYPES)).sort().map((t) => (
                                         <SelectItem key={t} value={t}>{t}</SelectItem>
                                     ))}
                                 </SelectContent>

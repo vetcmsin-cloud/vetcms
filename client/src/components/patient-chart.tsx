@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, formatDistanceToNow } from "date-fns";
+import { formatTime12h } from "@/lib/utils";
 import { Calendar as CalendarIcon } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -16,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { DEFAULT_PLAN_TEMPLATES } from "@/lib/medical-templates";
 import { CameraCapture } from "@/components/camera-capture";
 import { FullscreenImage } from "@/components/fullscreen-image";
 import { Calendar } from "@/components/ui/calendar";
@@ -31,7 +33,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { cn, formatWhatsAppLink } from "@/lib/utils";
+import { FaWhatsapp } from "react-icons/fa";
 import {
   CalendarDays,
   Pencil,
@@ -46,7 +49,8 @@ import {
   X,
   Check,
 } from "lucide-react";
-import type { Pet, Owner, Appointment, MedicalRecord } from "@shared/schema";
+import type { Pet, Owner, Appointment, MedicalRecord, Invoice } from "@shared/schema";
+import { CreditCard, DollarSign, TrendingUp, AlertCircle } from "lucide-react";
 import { MedicalReportRenderer } from "@/components/document-designer/MedicalReportRenderer";
 import { createPortal } from "react-dom";
 import { LabReportsTab } from "@/components/lab-reports-tab";
@@ -148,54 +152,179 @@ function OwnerTab({ owner }: { owner: Owner | undefined }) {
 }
 
 function HistoryTab({ petId }: { petId: number }) {
-  const { data: appointments, isLoading } = useQuery<Appointment[]>({ queryKey: ["/api/appointments"] });
+  const { data: appointments, isLoading: apptLoading } = useQuery<Appointment[]>({ queryKey: ["/api/appointments"] });
+  const { data: allInvoices, isLoading: invoicesLoading } = useQuery<Invoice[]>({ queryKey: ["/api/invoices"] });
 
   const petAppointments = useMemo(() => {
     if (!appointments) return [];
-    return appointments
-      .filter((a) => a.petId === petId)
-      .sort((a, b) => b.date.localeCompare(a.date));
+    return appointments.filter((a) => a.petId === petId);
   }, [appointments, petId]);
 
-  if (isLoading) {
+  const petInvoices = useMemo(() => {
+    if (!allInvoices) return [];
+    return allInvoices.filter((inv) => inv.petId === petId);
+  }, [allInvoices, petId]);
+
+  const dateGroups = useMemo(() => {
+    const map: Record<string, { appointments: typeof petAppointments; invoices: typeof petInvoices }> = {};
+    for (const appt of petAppointments) {
+      if (!map[appt.date]) map[appt.date] = { appointments: [], invoices: [] };
+      map[appt.date].appointments.push(appt);
+    }
+    for (const inv of petInvoices) {
+      if (!map[inv.date]) map[inv.date] = { appointments: [], invoices: [] };
+      map[inv.date].invoices.push(inv);
+    }
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
+  }, [petAppointments, petInvoices]);
+
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
+  
+  const displayedDateGroups = useMemo(() => {
+    return dateGroups.slice(0, visibleHistoryCount);
+  }, [dateGroups, visibleHistoryCount]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "paid":      return "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800";
+      case "pending":   return "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+      case "cancelled": return "bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800";
+      case "partial":   return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800";
+      default:          return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  const getPaymentMethodLabel = (method: string | null) => {
+    if (!method) return "";
+    const map: Record<string, string> = { cash: "Cash", upi: "UPI", card: "Card", cheque: "Cheque", other: "Other" };
+    return map[method.toLowerCase()] || method;
+  };
+
+  const formatDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  if (apptLoading || invoicesLoading) {
     return (
       <div className="flex flex-col gap-3 py-4">
-        {[1, 2].map((i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
+        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 py-4" data-testid="tab-content-history">
-      {petAppointments.length === 0 ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">
-          <Clock className="w-8 h-8 mx-auto mb-2 opacity-30" />
-          No visit history found.
+    <div className="flex flex-col gap-1 py-4" data-testid="tab-content-history">
+      {dateGroups.length === 0 ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          <Clock className="w-8 h-8 mx-auto mb-2 opacity-25" />
+          <p className="font-medium">No history found</p>
+          <p className="text-xs mt-1 opacity-70">Visits and payments will appear here.</p>
         </div>
       ) : (
-        petAppointments.map((appt) => (
-          <Card key={appt.id} data-testid={`history-item-${appt.id}`}>
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">{appt.type}</span>
-                  <span className="text-xs text-muted-foreground">{appt.date} at {appt.time}</span>
-                </div>
-                <Badge
-                  variant={appt.status === "completed" ? "default" : appt.status === "cancelled" ? "destructive" : "secondary"}
-                  className="text-[10px]"
-                >
-                  {appt.status}
-                </Badge>
-              </div>
-              {appt.notes && (
-                <p className="text-xs text-muted-foreground mt-2">{appt.notes}</p>
-              )}
-            </CardContent>
-          </Card>
+        displayedDateGroups.map(([date, { appointments: appts, invoices: invs }]) => (
+          <div key={date} className="flex flex-col">
+            {/* Date separator */}
+            <div className="flex items-center gap-2 px-1 py-2 sticky top-0 bg-background/95 backdrop-blur-sm z-10">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap px-1">
+                {formatDate(date)}
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            {/* Events for this date */}
+            <div className="flex flex-col gap-2 pb-3">
+              {/* Appointments */}
+              {appts.map((appt) => (
+                <Card key={`appt-${appt.id}`} data-testid={`history-item-${appt.id}`}>
+                  <CardContent className="p-0">
+                    <div className="flex items-stretch">
+                      <div className="w-1 shrink-0 bg-primary/60" />
+                      <div className="flex items-center justify-between gap-2 flex-wrap p-3 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-sm font-medium">{appt.type}</span>
+                            <span className="text-xs text-muted-foreground">{formatTime12h(appt.time)}</span>
+                          </div>
+                        </div>
+                        <Badge
+                          variant={appt.status === "completed" ? "default" : appt.status === "cancelled" ? "destructive" : "secondary"}
+                          className="text-[10px]"
+                        >
+                          {appt.status}
+                        </Badge>
+                      </div>
+                    </div>
+                    {appt.notes && (
+                      <p className="text-xs text-muted-foreground px-4 pb-2">{appt.notes}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+
+              {/* Invoices */}
+              {invs.map((inv) => (
+                <Card key={`inv-${inv.id}`} className="overflow-hidden" data-testid={`payment-item-${inv.id}`}>
+                  <CardContent className="p-0">
+                    <div className="flex items-stretch">
+                      <div className={`w-1 shrink-0 ${
+                        inv.status === "paid"      ? "bg-emerald-500" :
+                        inv.status === "pending"   ? "bg-amber-500"  :
+                        inv.status === "cancelled" ? "bg-red-500"    : "bg-primary"
+                      }`} />
+                      <div className="flex flex-col gap-1 p-3 flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Receipt className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-xs font-mono font-bold text-foreground">{inv.invoiceNumber}</span>
+                            {inv.status === "paid" && inv.paymentMethod && (
+                              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <span className="opacity-40">·</span>
+                                <CreditCard className="w-2.5 h-2.5" />
+                                {getPaymentMethodLabel(inv.paymentMethod)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm font-bold text-foreground">
+                              ₹{parseFloat(inv.total || "0").toFixed(2)}
+                            </span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize ${getStatusColor(inv.status)}`}>
+                              {inv.status}
+                            </span>
+                          </div>
+                        </div>
+                        {inv.notes && (
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {inv.notes.slice(0, 60)}{inv.notes.length > 60 ? "…" : ""}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
         ))
+      )}
+      
+      {visibleHistoryCount < dateGroups.length && (
+        <div className="flex justify-center mt-2 pb-4">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setVisibleHistoryCount((prev) => prev + 5)}
+            className="text-xs"
+          >
+            Load More ({dateGroups.length - visibleHistoryCount} remaining)
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -203,13 +332,217 @@ function HistoryTab({ petId }: { petId: number }) {
 
 
 
-function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined }) {
+
+// ─── Helpers: parse structured SOAP note storage format ───────────────────────
+
+function parseSoapNotes(notes: string | null): { subjective: string; objective: string } {
+  if (!notes) return { subjective: "", objective: "" };
+  const subjMatch = notes.match(/SUBJECTIVE:\s*([\s\S]*?)(?=OBJECTIVE:|$)/i);
+  const objMatch = notes.match(/OBJECTIVE:\s*([\s\S]*?)$/i);
+  return {
+    subjective: subjMatch?.[1]?.trim() || "",
+    objective: objMatch?.[1]?.trim() || "",
+  };
+}
+
+function parseTreatment(treatment: string | null): { procedures: string; medications: string[]; instructions: string } {
+  if (!treatment) return { procedures: "", medications: [], instructions: "" };
+  const procMatch = treatment.match(/Procedures\/Tests:\s*(.*?)(?=Medications\/Dosage:|Instructions:|$)/is);
+  const medMatch = treatment.match(/Medications\/Dosage:\s*([\s\S]*?)(?=Instructions:|$)/i);
+  const instMatch = treatment.match(/Instructions:\s*([\s\S]*?)$/i);
+  const medRaw = medMatch?.[1]?.trim() || "";
+  const medications = medRaw
+    ? medRaw.split(/\n/).map(l => l.replace(/^\s*\d+\.\s*/, "").trim()).filter(Boolean)
+    : [];
+  return {
+    procedures: procMatch?.[1]?.trim() || "",
+    medications,
+    instructions: instMatch?.[1]?.trim() || "",
+  };
+}
+
+function parseObjective(objective: string): Array<{ label: string; value: string }> {
+  if (!objective) return [];
+  return objective.split("|").map(part => {
+    const [label, ...rest] = part.trim().split(":");
+    return { label: label?.trim() || "", value: rest.join(":").trim() };
+  }).filter(v => v.label && v.value);
+}
+
+// Parse the stored 'diagnosis' field which is formatted as:
+// "Diagnosis: <name>\nNotes: <clinical reasoning>"
+// Also handles legacy plain-text entries (no prefix).
+function parseAssessment(diagnosis: string | null): { diagnosis: string; notes: string } {
+  if (!diagnosis) return { diagnosis: "", notes: "" };
+  // Use [\s\S]+? so multi-line diagnosis names are captured correctly,
+  // and use a non-multiline $ via lookahead to stop only at \nNotes: or true end-of-string.
+  const diagMatch = diagnosis.match(/^Diagnosis:\s*([\s\S]+?)(?=\nNotes:|\s*$)/i);
+  // Notes: capture everything after the label to the true end-of-string (no multiline flag on $)
+  const notesMatch = diagnosis.match(/\nNotes:\s*([\s\S]*)$/i);
+  if (diagMatch || notesMatch) {
+    return {
+      diagnosis: diagMatch?.[1]?.trim() || "",
+      notes: notesMatch?.[1]?.trim() || "",
+    };
+  }
+  // Legacy / plain-text: show as-is in diagnosis field
+  return { diagnosis: diagnosis.trim(), notes: "" };
+}
+
+
+// ─── Medical Record Card (Rich Structured SOAP View) ─────────────────────────
+
+function MedicalRecordCard({
+  record,
+  highlightRecordId,
+  isEditable,
+  onEdit,
+}: {
+  record: MedicalRecord;
+  highlightRecordId?: number;
+  isEditable: boolean;
+  onEdit: () => void;
+}) {
+  const { subjective, objective } = parseSoapNotes(record.notes);
+  const { procedures, medications, instructions } = parseTreatment(record.treatment);
+  const vitals = parseObjective(objective);
+  const { diagnosis: diagnosisLabel, notes: assessmentNotes } = parseAssessment(record.diagnosis);
+
+  return (
+    <div className="flex flex-col gap-0">
+      {/* ── Header Row ── */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-primary/70 shrink-0" />
+          <span className="text-xs font-bold text-primary font-mono">{record.date}</span>
+          {record.createdAt && (
+            <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
+              · {formatDistanceToNow(new Date(record.createdAt), { addSuffix: true })}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] text-muted-foreground font-medium">Dr. {record.veterinarian}</span>
+          {isEditable && (
+            <button
+              type="button"
+              title="Edit record"
+              onClick={onEdit}
+              className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── S: Subjective ── */}
+      {subjective && (
+        <div className="mb-2.5 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">S · Subjective</span>
+          </div>
+          <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed whitespace-pre-wrap">{subjective}</p>
+        </div>
+      )}
+
+      {/* ── O: Objective (Vitals) ── */}
+      {vitals.length > 0 && (
+        <div className="mb-2.5 px-3 py-2 rounded-lg bg-sky-50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/40">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-[9px] font-black uppercase tracking-widest text-sky-600 dark:text-sky-400">O · Objective</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {vitals.map(({ label, value }) => (
+              <span key={label} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white dark:bg-sky-900/40 border border-sky-200 dark:border-sky-800 text-[10px] font-medium text-sky-800 dark:text-sky-200 shadow-sm">
+                <span className="text-sky-500/80 font-semibold">{label}:</span>
+                {value}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── A: Assessment (Diagnosis) ── */}
+      {(diagnosisLabel || assessmentNotes) && (
+        <div className="mb-2.5 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[9px] font-black uppercase tracking-widest text-violet-600 dark:text-violet-400">A · Assessment</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {diagnosisLabel && (
+              <div className="flex items-start gap-1.5">
+                <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wide shrink-0 mt-0.5">Dx:</span>
+                <p className="text-xs text-violet-900 dark:text-violet-200 leading-relaxed font-medium">{diagnosisLabel}</p>
+              </div>
+            )}
+            {assessmentNotes && (
+              <div className="flex items-start gap-1.5">
+                <span className="text-[10px] font-bold text-violet-400 uppercase tracking-wide shrink-0 mt-0.5">Notes:</span>
+                <p className="text-xs text-violet-800 dark:text-violet-300 leading-relaxed whitespace-pre-wrap">{assessmentNotes}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── P: Plan ── */}
+      {(procedures || medications.length > 0 || instructions) && (
+        <div className="mb-2 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">P · Plan</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {procedures && (
+              <div>
+                <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-0.5 uppercase tracking-wide">Procedures / Tests</p>
+                <p className="text-xs text-emerald-900 dark:text-emerald-200">{procedures}</p>
+              </div>
+            )}
+            {medications.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1 uppercase tracking-wide">Medications / Dosage</p>
+                <ol className="flex flex-col gap-0.5 pl-1">
+                  {medications.map((med, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs text-emerald-900 dark:text-emerald-200">
+                      <span className="font-mono font-bold text-emerald-500 text-[10px] mt-0.5 shrink-0">{i + 1}.</span>
+                      <span className="leading-relaxed">{med}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            {instructions && (
+              <div>
+                <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-0.5 uppercase tracking-wide">Instructions</p>
+                <p className="text-xs text-emerald-900 dark:text-emerald-200 whitespace-pre-wrap leading-relaxed">{instructions}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Prescription (if any) */}
+      {record.prescription && (
+        <div className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
+          <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wide mr-1.5">Rx:</span>
+          <span className="text-xs text-rose-900 dark:text-rose-200">{record.prescription}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MedicalRecordsTab({ pet, owner, highlightRecordId }: { pet: Pet; owner: Owner | undefined; highlightRecordId?: number }) {
+
   const { toast } = useToast();
   const { user, hasPermission } = useAuth();
   const [, setLocation] = useLocation();
 
   const { data: records, isLoading: recordsLoading } = useQuery<MedicalRecord[]>({ queryKey: ["/api/medical-records"] });
   const { data: appointments } = useQuery<any[]>({ queryKey: ["/api/appointments"] });
+
+  const [visibleCount, setVisibleCount] = useState(5);
 
   const petRecords = useMemo(() => {
     if (!records) return [];
@@ -218,8 +551,21 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [records, pet.id]);
 
+  const displayedRecords = useMemo(() => {
+    return petRecords.slice(0, visibleCount);
+  }, [petRecords, visibleCount]);
+
   const canAddRecords = hasPermission("medical_records.create", "medical_records.manage");
   const canGenerateInvoice = hasPermission("billing.manage", "billing.create");
+
+  // Scroll highlighted record into view when chart opens with a deep-link
+  useEffect(() => {
+    if (!highlightRecordId) return;
+    const el = document.getElementById(`record-card-${highlightRecordId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightRecordId, petRecords]);
 
   const [subjective, setSubjective] = useState("");
 
@@ -229,9 +575,11 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
   const [diagnosisShowSuggestions, setDiagnosisShowSuggestions] = useState(false);
   const [assessmentNotes, setAssessmentNotes] = useState("");
 
-  // Serialise assessment for API
+  // Serialise assessment for API — use diagnosisSelected (from dropdown) or fall back
+  // to diagnosisQuery (free-typed) so the diagnosis is never silently dropped
+  const effectiveDiagnosis = diagnosisSelected || diagnosisQuery.trim();
   const assessment = [
-    diagnosisSelected ? `Diagnosis: ${diagnosisSelected}` : "",
+    effectiveDiagnosis ? `Diagnosis: ${effectiveDiagnosis}` : "",
     assessmentNotes ? `Notes: ${assessmentNotes}` : "",
   ].filter(Boolean).join("\n");
 
@@ -263,6 +611,69 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     lymphNodes ? `Lymph Nodes: ${lymphNodes}` : "",
   ].filter(Boolean).join(" | ");
 
+  // ── Draft Auto-Save (localStorage) ──
+  const DRAFT_KEY = `soap_draft_pet_${pet.id}`;
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // On mount: check if a draft exists for this pet
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        // Only show banner if at least one field has content
+        const hasContent = d.subjective || d.vitals?.temperature || d.vitals?.pulse ||
+          d.vitals?.heartRate || d.vitals?.respiratoryRate || d.mucousMembranes ||
+          d.lymphNodes || d.diagnosisQuery || d.assessmentNotes ||
+          d.procedures || d.medications?.some((m: string) => m.trim());
+        if (hasContent) setHasDraft(true);
+      }
+    } catch (_) {}
+  }, [pet.id]);
+
+  // Auto-save draft on any field change
+  useEffect(() => {
+    const draft = {
+      subjective, vitals, mucousMembranes, lymphNodes,
+      diagnosisQuery, diagnosisSelected, assessmentNotes,
+      procedures, medications, planInstructions,
+    };
+    try {
+      const hasContent = subjective || vitals.temperature || vitals.pulse ||
+        vitals.heartRate || vitals.respiratoryRate || mucousMembranes ||
+        lymphNodes || diagnosisQuery || assessmentNotes ||
+        procedures || medications.some(m => m.trim()) || planInstructions;
+      if (hasContent) {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      }
+    } catch (_) {}
+  }, [subjective, vitals, mucousMembranes, lymphNodes, diagnosisQuery, diagnosisSelected, assessmentNotes, procedures, medications, planInstructions]);
+
+  const restoreDraft = () => {
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (!saved) return;
+      const d = JSON.parse(saved);
+      if (d.subjective !== undefined) setSubjective(d.subjective);
+      if (d.vitals) setVitals(d.vitals);
+      if (d.mucousMembranes !== undefined) setMucousMembranes(d.mucousMembranes);
+      if (d.lymphNodes !== undefined) setLymphNodes(d.lymphNodes);
+      if (d.diagnosisQuery !== undefined) setDiagnosisQuery(d.diagnosisQuery);
+      if (d.diagnosisSelected !== undefined) setDiagnosisSelected(d.diagnosisSelected);
+      if (d.assessmentNotes !== undefined) setAssessmentNotes(d.assessmentNotes);
+      if (d.procedures !== undefined) setProcedures(d.procedures);
+      if (d.medications && Array.isArray(d.medications)) setMedications(d.medications);
+      if (d.planInstructions !== undefined) setPlanInstructions(d.planInstructions);
+      setHasDraft(false);
+      toast({ title: "Draft restored", description: "Your previous unsaved data has been loaded." });
+    } catch (_) {}
+  };
+
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setHasDraft(false);
+  };
+
   const resetForm = () => {
     setSubjective("");
     setVitals({ temperature: "", pulse: "", heartRate: "", respiratoryRate: "" });
@@ -274,6 +685,8 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     setProcedures("");
     setMedications([""]);
     setPlanInstructions("");
+    // Clear any draft from localStorage on explicit save
+    try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
   };
 
   // Vet diagnosis search list
@@ -308,45 +721,18 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     ? VET_DIAGNOSES.filter(d => d.toLowerCase().includes(diagnosisQuery.toLowerCase())).slice(0, 8)
     : [];
 
-  // Treatment plan templates
-  const TREATMENT_TEMPLATES: { label: string; procedures: string; medications: string; instructions: string }[] = [
-    {
-      label: "Dehydration / IV Fluid Therapy",
-      procedures: "IV catheter placement, PCV/TS, Blood glucose",
-      medications: "LRS IV fluids at 50 ml/hr",
-      instructions: "Administer IV fluids; re-evaluate vitals every 4 hours; monitor urine output; rehydrate and reassess.",
-    },
-    {
-      label: "Gastroenteritis",
-      procedures: "Faecal exam, Blood panel, Parvo snap test",
-      medications: "Metronidazole 15mg/kg BID x 5 days; Cerenia 1mg/kg SQ SID",
-      instructions: "Bland diet (boiled chicken & rice) x 3-5 days; small frequent meals; ensure fresh water available.",
-    },
-    {
-      label: "Skin Infection / Pyoderma",
-      procedures: "Skin scraping, Cytology",
-      medications: "Amoxicillin-Clavulanate 12.5mg/kg BID x 14 days; Chlorhexidine shampoo 2x/week",
-      instructions: "Bathe with medicated shampoo twice weekly; apply topical as directed; recheck in 14 days.",
-    },
-    {
-      label: "Otitis Externa",
-      procedures: "Ear cytology, Culture if resistant",
-      medications: "Otomax ear drops 6 drops per ear BID x 7 days; clean ears with Epi-Otic",
-      instructions: "Clean ears before applying drops; recheck in 7-10 days; prevent swimming during treatment.",
-    },
-    {
-      label: "Vaccination Visit",
-      procedures: "Physical exam, weight check",
-      medications: "Per vaccination protocol",
-      instructions: "Observe for 20 mins post-vaccination; watch for allergic reaction; next booster as per schedule.",
-    },
-    {
-      label: "Post-Surgery Recovery",
-      procedures: "E-collar fitting, Wound check",
-      medications: "Amoxicillin 20mg/kg BID x 7 days; Meloxicam 0.1mg/kg SID x 3 days",
-      instructions: "Keep incision dry; restrict activity for 10-14 days; return for suture removal in 10 days; monitor for swelling or discharge.",
-    },
-  ];
+  // Treatment plan templates — admin-configured custom templates merged with shared defaults
+  const { data: clinicSettings } = useQuery<Record<string, string>>({ queryKey: ["/api/clinic-settings"] });
+
+  // Merge custom (admin-defined) templates with shared defaults
+  const TREATMENT_TEMPLATES = (() => {
+    try {
+      const raw = clinicSettings?.medicalPlanTemplates;
+      if (raw) return JSON.parse(raw) as typeof DEFAULT_PLAN_TEMPLATES;
+    } catch { /* fall through */ }
+    return DEFAULT_PLAN_TEMPLATES;
+  })();
+
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -379,6 +765,7 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/medical-records"] });
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
       resetForm();
       toast({ title: "Record saved", description: "Medical record has been saved successfully." });
     },
@@ -436,6 +823,7 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
       queryClient.invalidateQueries({ queryKey: ["/api/medical-records"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
       resetForm();
       toast({ title: "Record saved & invoice created", description: "Redirecting to billing..." });
 
@@ -484,11 +872,38 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
   };
 
   return (
-    <div className="flex flex-col gap-5 py-4" data- testid="tab-content-medical-records" >
+    <div className="flex flex-col gap-5 py-4" data-testid="tab-content-medical-records">
       {canAddRecords && (
         <Card>
           <CardContent className="p-4">
             <h3 className="text-sm font-semibold mb-4">Add New SOAP Note</h3>
+
+            {/* ── Draft Restore Banner ── */}
+            {hasDraft && (
+              <div className="flex items-center justify-between gap-2 mb-4 p-2.5 rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+                <div className="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 shrink-0"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 5v5l4 2"/></svg>
+                  <span className="text-xs text-amber-800 dark:text-amber-200 font-medium">Unsaved draft found. Continue from where you left off?</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={restoreDraft}
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={discardDraft}
+                    className="text-[11px] font-medium px-2.5 py-1 rounded border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs uppercase text-muted-foreground tracking-wider">Subjective</Label>
@@ -837,8 +1252,13 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {petRecords.map((record) => (
-              <Card key={record.id} data-testid={`medical-record-${record.id}`}>
+            {displayedRecords.map((record) => (
+              <Card
+                key={record.id}
+                id={`record-card-${record.id}`}
+                data-testid={`medical-record-${record.id}`}
+                className={record.id === highlightRecordId ? "ring-2 ring-amber-400 ring-offset-1 transition-shadow" : ""}
+              >
                 <CardContent className="p-3">
                   {editingId === record.id ? (
                     // ── Inline Edit Form ──
@@ -886,53 +1306,37 @@ function MedicalRecordsTab({ pet, owner }: { pet: Pet; owner: Owner | undefined 
                       </div>
                     </div>
                   ) : (
-                    // ── View Mode ──
-                    <div>
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-                          <span className="text-sm font-medium">{record.diagnosis}</span>
-                          <span className="text-xs text-muted-foreground">{record.treatment}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {isEditable(record) && (
-                            <button
-                              type="button"
-                              title="Edit (within 24 hrs)"
-                              onClick={() => {
-                                setEditingId(record.id);
-                                setEditFields({
-                                  diagnosis: record.diagnosis,
-                                  treatment: record.treatment,
-                                  notes: record.notes || "",
-                                });
-                              }}
-                              className="text-muted-foreground hover:text-primary transition-colors"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          <Badge variant="secondary" className="text-[10px]">{record.date}</Badge>
-                        </div>
-                      </div>
-                      {record.prescription && (
-                        <p className="text-xs text-muted-foreground mt-1">Rx: {record.prescription}</p>
-                      )}
-                      {record.notes && (
-                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{record.notes}</p>
-                      )}
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-[11px] text-muted-foreground">Dr. {record.veterinarian}</span>
-                        {record.createdAt && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            {formatDistanceToNow(new Date(record.createdAt), { addSuffix: true })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    // ── View Mode ── Rich Structured SOAP Card
+                    <MedicalRecordCard
+                      record={record}
+                      highlightRecordId={highlightRecordId}
+                      isEditable={isEditable(record)}
+                      onEdit={() => {
+                        setEditingId(record.id);
+                        setEditFields({
+                          diagnosis: record.diagnosis,
+                          treatment: record.treatment,
+                          notes: record.notes || "",
+                        });
+                      }}
+                    />
                   )}
                 </CardContent>
               </Card>
             ))}
+            
+            {visibleCount < petRecords.length && (
+              <div className="flex justify-center mt-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setVisibleCount((prev) => prev + 5)}
+                  className="text-xs"
+                >
+                  Load More ({petRecords.length - visibleCount} remaining)
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -948,9 +1352,10 @@ interface PatientChartProps {
   onEditPet?: (pet: Pet) => void;
   onBookAppointment?: (pet: Pet) => void;
   defaultTab?: string;
+  highlightRecordId?: number;
 }
 
-export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBookAppointment, defaultTab }: PatientChartProps) {
+export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBookAppointment, defaultTab, highlightRecordId }: PatientChartProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || "patient-info");
 
   useEffect(() => {
@@ -1140,7 +1545,7 @@ export function PatientChart({ pet, open, onOpenChange, owners, onEditPet, onBoo
                   <DocumentsTab petId={pet.id} />
                 </TabsContent>
                 <TabsContent value="medical-records" className="mt-0">
-                  <MedicalRecordsTab pet={pet} owner={owner} />
+                  <MedicalRecordsTab pet={pet} owner={owner} highlightRecordId={highlightRecordId} />
                 </TabsContent>
                 <TabsContent value="lab" className="mt-0">
                   <LabReportsTab petId={pet.id} pet={pet} owner={owner} />

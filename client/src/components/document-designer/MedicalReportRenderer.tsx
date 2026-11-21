@@ -19,9 +19,12 @@ export function MedicalReportRenderer({ settings, pet, owner, records, type, dat
     const today = new Date().toISOString().split('T')[0];
     const targetDate = type === "today" ? today : (type === "specific" && date ? date : null);
 
+    // Filter to only this patient's records
+    const petRecords = records.filter(r => r.petId === pet.id);
+
     const filteredRecords = targetDate
-        ? records.filter(r => r.date === targetDate)
-        : records;
+        ? petRecords.filter(r => r.date === targetDate)
+        : petRecords;
     const sortedRecords = [...filteredRecords].sort((a, b) => b.date.localeCompare(a.date));
 
     // Get the most recent record for typical fields (like diagnosis, treatment, etc.)
@@ -134,84 +137,185 @@ export function MedicalReportRenderer({ settings, pet, owner, records, type, dat
     // Default Fallback Layout for Medical Report
     const dates = Array.from(new Set(sortedRecords.map(r => r.date))).sort((a, b) => b.localeCompare(a));
     const clinicName = settings.clinicName || "PetPoint Pro Veterinary Clinic";
+    const clinicAddress = settings.clinicAddress || "";
+    const clinicPhone = settings.clinicPhone || settings.upiPhone || "";
     const reportTitle = type === "full"
-        ? "Patient Medical Report"
-        : `Patient Medical Report - ${targetDate ? new Date(targetDate).toLocaleDateString() : ""}`;
+        ? "Complete Medical History"
+        : type === "today"
+            ? "Today's Visit Report"
+            : `Visit Report — ${targetDate ? new Date(targetDate + "T00:00:00").toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ""}`;
+
+    // Helpers to parse stored SOAP format
+    const parseSoap = (notes: string | null) => {
+        if (!notes) return { subjective: "", objective: "" };
+        const sMatch = notes.match(/SUBJECTIVE:\s*([\s\S]*?)(?=OBJECTIVE:|$)/i);
+        const oMatch = notes.match(/OBJECTIVE:\s*([\s\S]*?)$/i);
+        return { subjective: sMatch?.[1]?.trim() || "", objective: oMatch?.[1]?.trim() || "" };
+    };
+    const parseDiag = (d: string | null) => {
+        if (!d) return { diagnosis: "", notes: "" };
+        // [\s\S]+? captures multi-line diagnosis; lookahead stops at \nNotes: or true end-of-string
+        const dm = d.match(/^Diagnosis:\s*([\s\S]+?)(?=\nNotes:|\s*$)/i);
+        // Notes: captures everything after the label through the true end-of-string
+        const nm = d.match(/\nNotes:\s*([\s\S]*)$/i);
+        if (dm || nm) return { diagnosis: dm?.[1]?.trim() || "", notes: nm?.[1]?.trim() || "" };
+        return { diagnosis: d.trim(), notes: "" };
+    };
+    const parsePlan = (t: string | null) => {
+        if (!t) return { procedures: "", medications: [] as string[], instructions: "" };
+        const pm = t.match(/Procedures\/Tests:\s*(.*?)(?=Medications\/Dosage:|Instructions:|$)/is);
+        const mm = t.match(/Medications\/Dosage:\s*([\s\S]*?)(?=Instructions:|$)/i);
+        const im = t.match(/Instructions:\s*([\s\S]*?)$/i);
+        const meds = mm?.[1]?.trim().split(/\n/).map(l => l.replace(/^\s*\d+\.\s*/, "").trim()).filter(Boolean) || [];
+        return { procedures: pm?.[1]?.trim() || "", medications: meds, instructions: im?.[1]?.trim() || "" };
+    };
+    const parseVitals = (obj: string) => {
+        if (!obj) return [];
+        return obj.split("|").map(p => {
+            const [l, ...r] = p.trim().split(":");
+            return { label: l?.trim(), value: r.join(":").trim() };
+        }).filter(v => v.label && v.value);
+    };
 
     return (
-        <div className={cn("p-8 bg-white mx-auto print:p-0", className)} style={{ width: "794px", minHeight: "1123px", fontFamily: "Inter, sans-serif", color: "#333", fontSize: "14px" }}>
-            <div className="text-center mb-8 border-b-2 border-gray-100 pb-5">
-                <h1 className="m-0 text-blue-600 text-2xl font-bold">{clinicName}</h1>
-            </div>
-
-            <div className="flex justify-between items-center mb-5 border-b border-slate-200 pb-2">
-                <span className="text-lg font-semibold text-slate-800">Patient Summary</span>
-                <span className="text-xs text-slate-500">Generated on {today}</span>
-            </div>
-
-            <div className="flex gap-8 mb-10 bg-slate-50 p-5 rounded-lg border border-slate-200">
-                {pet.imageUrl && <img src={pet.imageUrl} alt={pet.name} className="w-24 h-24 rounded-full object-cover bg-slate-200 shrink-0" />}
-                <div className="flex-1 space-y-3">
+        <div className={cn("bg-white mx-auto print:p-0", className)} style={{ width: "794px", minHeight: "1123px", fontFamily: "Inter, sans-serif", color: "#1a1a2e", fontSize: "13px" }}>
+            {/* ── Clinic Header ── */}
+            <div style={{ padding: "28px 40px 16px", borderBottom: "3px solid #0ea5e9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Patient Name</div>
-                        <div className="font-medium text-slate-900">{pet.name}</div>
+                        <h1 style={{ margin: 0, fontSize: "22px", fontWeight: 800, color: "#0ea5e9", letterSpacing: "-0.3px" }}>{clinicName}</h1>
+                        {clinicAddress && <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#64748b" }}>{clinicAddress}</p>}
+                        {clinicPhone && <p style={{ margin: "1px 0 0", fontSize: "11px", color: "#64748b" }}>Phone: {clinicPhone}</p>}
                     </div>
-                    <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Info</div>
-                        <div className="font-medium text-slate-900">{pet.species} &bull; {pet.breed} &bull; {pet.gender}</div>
-                    </div>
-                    <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Age / Weight</div>
-                        <div className="font-medium text-slate-900">{[pet.age > 0 ? `${pet.age} year${pet.age !== 1 ? 's' : ''}` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths} month${pet.ageMonths !== 1 ? 's' : ''}` : ""].filter(Boolean).join(" ") || "< 1 month"} {pet.weight ? `\u2022 ${pet.weight}kg` : ''}</div>
-                    </div>
-                </div>
-                <div className="flex-1 space-y-3">
-                    <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Owner Name</div>
-                        <div className="font-medium text-slate-900">{owner.firstName} {owner.lastName}</div>
-                    </div>
-                    <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Contact</div>
-                        <div className="font-medium text-slate-900">{owner.phone}</div>
-                    </div>
-                    <div>
-                        <div className="text-xs uppercase text-slate-500 font-semibold tracking-wide">Email</div>
-                        <div className="font-medium text-slate-900">{owner.email || "N/A"}</div>
+                    <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "16px", fontWeight: 700, color: "#334155" }}>{reportTitle}</div>
+                        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
                     </div>
                 </div>
             </div>
 
-            <div className="flex justify-between items-center mb-5 border-b border-slate-200 pb-2">
-                <span className="text-lg font-semibold text-slate-800">{reportTitle}</span>
+            {/* ── Patient Info Bar ── */}
+            <div style={{ display: "flex", gap: "32px", padding: "14px 40px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Patient</div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>{pet.name}</div>
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>{pet.species} · {pet.breed} · {pet.gender}</div>
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                        {[pet.age > 0 ? `${pet.age}y` : "", (pet.ageMonths ?? 0) > 0 ? `${pet.ageMonths}m` : ""].filter(Boolean).join(" ") || "< 1m"}
+                        {pet.weight ? ` · ${pet.weight}kg` : ""}
+                    </div>
+                </div>
+                <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Owner</div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>{owner.firstName} {owner.lastName}</div>
+                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "1px" }}>{owner.phone}</div>
+                    {owner.email && <div style={{ fontSize: "11px", color: "#64748b" }}>{owner.email}</div>}
+                </div>
             </div>
 
-            {dates.length === 0 && <p className="text-center italic text-slate-400">No records found for this period.</p>}
+            {/* ── Records ── */}
+            <div style={{ padding: "20px 40px" }}>
+                {dates.length === 0 && <p style={{ textAlign: "center", color: "#94a3b8", fontStyle: "italic", padding: "40px 0" }}>No medical records found for this period.</p>}
 
-            {dates.map(date => {
-                const dateRecords = sortedRecords.filter(r => r.date === date);
-                return (
-                    <div key={date} className="mb-8">
-                        <div className="inline-block px-3 py-1.5 bg-slate-100 rounded-md text-slate-500 font-semibold text-sm mb-4">
-                            {new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                        </div>
-                        {dateRecords.map(rec => (
-                            <div key={rec.id} className="border-l-4 border-blue-500 pl-4 py-1 mb-5">
-                                <div className="text-xs font-semibold text-blue-500 uppercase tracking-widest mb-1">Medical Record</div>
-                                <div className="space-y-2 text-sm text-slate-800">
-                                    <p><strong>Diagnosis:</strong> {rec.diagnosis}</p>
-                                    <p><strong>Treatment:</strong> {rec.treatment}</p>
-                                    {rec.prescription && <p><strong>Prescription:</strong> {rec.prescription}</p>}
-                                    {rec.notes && <div className="mt-2.5 p-2.5 bg-slate-50 rounded text-slate-600 whitespace-pre-wrap text-sm">{rec.notes}</div>}
-                                </div>
-                                <div className="text-xs text-slate-400 mt-2">Veterinarian: Dr. {rec.veterinarian}</div>
+                {dates.map((dateStr, di) => {
+                    const dateRecords = sortedRecords.filter(r => r.date === dateStr);
+                    return (
+                        <div key={dateStr} style={{ marginBottom: "24px" }}>
+                            {/* Date Header */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                                <div style={{ height: "1px", flex: 1, background: "#e2e8f0" }} />
+                                <span style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", whiteSpace: "nowrap", padding: "3px 10px", background: "#f1f5f9", borderRadius: "4px" }}>
+                                    {new Date(dateStr + "T00:00:00").toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                                <div style={{ height: "1px", flex: 1, background: "#e2e8f0" }} />
                             </div>
-                        ))}
-                    </div>
-                );
-            })}
 
-            <div className="mt-12 text-center text-xs text-slate-400">
-                Generated by PetPoint Pro Veterinary Clinic Management System
+                            {dateRecords.map(rec => {
+                                const { subjective, objective } = parseSoap(rec.notes);
+                                const vitals = parseVitals(objective);
+                                const { diagnosis, notes: assessNotes } = parseDiag(rec.diagnosis);
+                                const { procedures, medications, instructions } = parsePlan(rec.treatment);
+
+                                return (
+                                    <div key={rec.id} style={{ marginBottom: "16px", borderLeft: "3px solid #0ea5e9", paddingLeft: "14px" }}>
+                                        <div style={{ fontSize: "10px", color: "#94a3b8", marginBottom: "8px" }}>Dr. {rec.veterinarian}</div>
+
+                                        {/* S: Subjective */}
+                                        {subjective && (
+                                            <div style={{ marginBottom: "8px" }}>
+                                                <div style={{ fontSize: "9px", fontWeight: 800, color: "#d97706", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "2px" }}>S · Subjective</div>
+                                                <p style={{ margin: 0, fontSize: "12px", color: "#44403c", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{subjective}</p>
+                                            </div>
+                                        )}
+
+                                        {/* O: Objective / Vitals */}
+                                        {vitals.length > 0 && (
+                                            <div style={{ marginBottom: "8px" }}>
+                                                <div style={{ fontSize: "9px", fontWeight: 800, color: "#0284c7", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>O · Objective</div>
+                                                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                                    {vitals.map(v => (
+                                                        <span key={v.label} style={{ fontSize: "11px", padding: "2px 8px", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "12px", color: "#0c4a6e" }}>
+                                                            <strong>{v.label}:</strong> {v.value}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* A: Assessment */}
+                                        {(diagnosis || assessNotes) && (
+                                            <div style={{ marginBottom: "8px" }}>
+                                                <div style={{ fontSize: "9px", fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "2px" }}>A · Assessment</div>
+                                                {diagnosis && <p style={{ margin: 0, fontSize: "12px", color: "#1e1b4b", fontWeight: 600 }}>Dx: {diagnosis}</p>}
+                                                {assessNotes && <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#4c1d95", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{assessNotes}</p>}
+                                            </div>
+                                        )}
+
+                                        {/* P: Plan */}
+                                        {(procedures || medications.length > 0 || instructions) && (
+                                            <div style={{ marginBottom: "4px" }}>
+                                                <div style={{ fontSize: "9px", fontWeight: 800, color: "#059669", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>P · Plan</div>
+                                                {procedures && (
+                                                    <div style={{ marginBottom: "4px" }}>
+                                                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#065f46" }}>Procedures: </span>
+                                                        <span style={{ fontSize: "12px", color: "#064e3b" }}>{procedures}</span>
+                                                    </div>
+                                                )}
+                                                {medications.length > 0 && (
+                                                    <div style={{ marginBottom: "4px" }}>
+                                                        <div style={{ fontSize: "10px", fontWeight: 700, color: "#065f46", marginBottom: "2px" }}>Medications:</div>
+                                                        {medications.map((med, i) => (
+                                                            <div key={i} style={{ fontSize: "12px", color: "#064e3b", paddingLeft: "8px" }}>{i + 1}. {med}</div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {instructions && (
+                                                    <div>
+                                                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#065f46" }}>Instructions: </span>
+                                                        <span style={{ fontSize: "12px", color: "#064e3b", whiteSpace: "pre-wrap" }}>{instructions}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Prescription */}
+                                        {rec.prescription && (
+                                            <div style={{ marginTop: "4px", padding: "4px 8px", background: "#fef2f2", borderRadius: "4px", border: "1px solid #fecaca" }}>
+                                                <span style={{ fontSize: "10px", fontWeight: 700, color: "#dc2626" }}>Rx: </span>
+                                                <span style={{ fontSize: "12px", color: "#7f1d1d" }}>{rec.prescription}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* ── Footer ── */}
+            <div style={{ padding: "16px 40px", borderTop: "1px solid #e2e8f0", textAlign: "center", marginTop: "auto" }}>
+                <p style={{ margin: 0, fontSize: "10px", color: "#94a3b8" }}>This report is computer-generated by {clinicName}. For queries, contact {clinicPhone || "the clinic"}.</p>
             </div>
         </div>
     );

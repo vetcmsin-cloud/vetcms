@@ -17,6 +17,9 @@ import {
   ClipboardList,
   Activity,
   FlaskConical,
+  ChevronRight,
+  BookOpen,
+  Plus,
 } from "lucide-react";
 import logoImg from "@assets/Untitled_design_(2)_-_Copy_1770707768689.png";
 import {
@@ -28,14 +31,24 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
+import { openNewInvoiceTerminal } from "@/components/NewInvoiceTerminal";
+import { openNewPurchaseTerminal } from "@/components/NewPurchaseTerminal";
 
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, permissions: ["dashboard.view"] },
@@ -46,13 +59,15 @@ const mainNav = [
   { title: "Lab", url: "/lab", icon: FlaskConical, permissions: ["medical_records.view", "medical_records.manage"] },
   { title: "Accounts", url: "/accounts", icon: Wallet, permissions: ["accounts.view", "accounts.manage"] },
   { title: "Billing", url: "/billing", icon: Receipt, permissions: ["billing.view", "billing.manage"] },
+  { title: "New Invoice", icon: Plus, isTerminal: true, permissions: ["billing.create", "billing.manage"] },
   { title: "Estimates", url: "/estimates", icon: ClipboardList, permissions: ["billing.view", "billing.create", "billing.edit"] },
 ];
 
 const inventoryNav = [
-  { title: "Inventory", url: "/inventory", icon: Package },
-  { title: "Suppliers", url: "/suppliers", icon: Truck },
-  { title: "Purchase Orders", url: "/purchase-orders", icon: ShoppingCart },
+  { title: "Inventory", url: "/inventory", icon: Package, permissions: ["inventory.view", "inventory.manage"] },
+  { title: "Suppliers", url: "/suppliers", icon: Truck, permissions: ["inventory.view", "inventory.manage", "purchase.view", "purchase.manage"] },
+  { title: "Purchase Orders", url: "/purchase-orders", icon: ShoppingCart, permissions: ["purchase.view", "purchase.manage"] },
+  { title: "Purchases", url: "/purchases", icon: Receipt, permissions: ["purchase.view", "purchase.manage"] },
 ];
 
 const reportsNav = [
@@ -62,8 +77,6 @@ const reportsNav = [
 
 const adminNav = [
   { title: "Admin Dashboard", url: "/admin", icon: Settings, permissions: ["admin_dashboard.view"] },
-  { title: "User Management", url: "/users", icon: Shield, permissions: ["user_management.view", "user_management.manage"] },
-  { title: "Activity Log", url: "/activity-log", icon: Activity, permissions: ["activity_log.view"] },
 ];
 
 function roleLabel(role: string) {
@@ -89,9 +102,9 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <Link href="/" data-testid="link-logo">
           <div className="flex items-center gap-3">
-            <img src={settings?.clinicLogoUrl || logoImg} alt={settings?.clinicName || "PetPoint Pro"} className="w-9 h-9 rounded-md object-cover" />
+            <img src={settings?.clinicLogoUrl || logoImg} alt={settings?.clinicName || "Clinic"} className="w-9 h-9 rounded-md object-cover" />
             <div className="flex flex-col">
-              <span className="text-sm font-semibold tracking-tight">{settings?.clinicName || "PetPoint Pro"}</span>
+              <span className="text-sm font-semibold tracking-tight">{settings?.clinicName || "Clinic"}</span>
               <span className="text-[11px] text-muted-foreground">{settings?.clinicTagline || "Veterinary Clinic"}</span>
             </div>
           </div>
@@ -106,18 +119,26 @@ export function AppSidebar() {
                 const isActive =
                   item.url === "/"
                     ? location === "/"
-                    : location.startsWith(item.url);
+                    : Boolean(location && item.url && location.startsWith(item.url));
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
-                      asChild
+                      asChild={!item.isTerminal}
                       isActive={isActive}
+                      onClick={item.isTerminal ? (item.title === "New Invoice" ? () => openNewInvoiceTerminal() : undefined) : undefined}
                       data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
                     >
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
+                      {item.isTerminal ? (
+                        <button className="flex items-center gap-2 w-full">
+                          <item.icon className="w-4 h-4" />
+                          <span>{item.title}</span>
+                        </button>
+                      ) : (
+                        <Link href={item.url!}>
+                          {item.icon && <item.icon className="w-4 h-4" />}
+                          <span>{item.title}</span>
+                        </Link>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -126,55 +147,57 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {user && hasPermission("inventory.view", "inventory.manage") && (
+        {user && hasPermission("inventory.view", "inventory.manage", "purchase.view", "purchase.manage") && (
           <SidebarGroup>
             <SidebarGroupLabel>Inventory & Supply</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {inventoryNav.map((item) => {
-                  const isActive = location === item.url || location.startsWith(item.url + "/");
-                  return (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        <Link href={item.url}>
-                          <item.icon className="w-4 h-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
+                {inventoryNav.filter(item => hasPermission(...item.permissions)).map((item: any) => {
+                    return (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton
+                          asChild={!item.isTerminal}
+                          isActive={!item.isTerminal && (location === item.url || location.startsWith(item.url + "/"))}
+                          onClick={item.isTerminal ? (item.title === "New Purchase" ? () => openNewPurchaseTerminal() : undefined) : undefined}
+                          data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          {item.isTerminal ? (
+                            <button className="flex items-center gap-2 w-full">
+                              <item.icon className="w-4 h-4" />
+                              <span>{item.title}</span>
+                            </button>
+                          ) : (
+                            <Link href={item.url!}>
+                              <item.icon className="w-4 h-4" />
+                              <span>{item.title}</span>
+                            </Link>
+                          )}
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
                 })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
 
-        {user && hasPermission("reports.view", "inventory.view", "inventory.manage") && (
+        {user && hasPermission("reports.view") && (
           <SidebarGroup>
             <SidebarGroupLabel>Reports</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {reportsNav.map((item) => {
-                  const isActive = location === item.url || location.startsWith(item.url + "/");
-                  return (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        <Link href={item.url}>
-                          <item.icon className="w-4 h-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/reports" || location.startsWith("/reports/")}
+                    data-testid="nav-reports-dashboard"
+                  >
+                    <Link href="/reports">
+                      <BarChart3 className="w-4 h-4" />
+                      <span>Reports Dashboard</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -190,8 +213,8 @@ export function AppSidebar() {
                 {visibleAdmin.map((item) => {
                   const isActive =
                     item.url === "/admin"
-                      ? location === "/admin" || location.startsWith("/admin/")
-                      : location === item.url;
+                      ? location === "/admin" || (location.startsWith("/admin/") && !adminNav.some(ai => ai.url !== "/admin" && location.startsWith(ai.url)))
+                      : location.startsWith(item.url);
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton
