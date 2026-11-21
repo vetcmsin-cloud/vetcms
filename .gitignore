@@ -4,5 +4,13 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+*.zip
+*.log
+*.txt
+*.xlsx
+scratch/
+deploy_temp/
+dist_backup_*/
+test_extract/
 .env
 .env.*
