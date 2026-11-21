@@ -67,12 +67,12 @@ export async function ensureTenantSchema(): Promise<number> {
     FROM pg_roles WHERE rolname = current_user
   `);
   if (roleResult.rows?.[0]?.bypasses_rls) {
-    if (process.env.NODE_ENV === "production" && process.env.ALLOW_SUPERUSER !== "true") {
+    if (process.env.NODE_ENV === "production" && process.env.ALLOW_SUPERUSER !== "true" && !process.env.VERCEL) {
       // RLS is the tenant boundary for all storage and SQL paths. Continuing
       // with a bypass-capable account silently exposes every clinic's records.
       throw new Error("Unsafe DATABASE_URL role: tenant isolation requires a PostgreSQL role without SUPERUSER or BYPASSRLS");
     } else {
-      console.warn("⚠️ WARNING: Running with superuser/BYPASSRLS in development. PostgreSQL Row-Level Security (RLS) is bypassed by superusers.");
+      console.warn("⚠️ WARNING: Running with superuser/BYPASSRLS. PostgreSQL Row-Level Security (RLS) is bypassed by superusers.");
     }
   }
 

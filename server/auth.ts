@@ -12,11 +12,12 @@ export function setupAuth(app: any) {
     session({
       store: new PgSession({
         pool,
-        createTableIfMissing: true,
+        createTableIfMissing: false,
       }),
       secret: process.env.SESSION_SECRET || "petpoint-pro-secret-key",
       resave: false,
       saveUninitialized: false,
+      proxy: true,
       cookie: {
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,

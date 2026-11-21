@@ -1,7 +1,9 @@
 import 'dotenv/config';
 if (!process.env.DATABASE_URL) {
   console.error("CRITICAL ERROR: DATABASE_URL is not defined in .env or environment!");
-  process.exit(1);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
 }
 
 process.env.TZ = 'Asia/Kolkata';
@@ -86,6 +88,9 @@ export async function initApp(): Promise<express.Express> {
 
   initPromise = (async () => {
     try {
+      if (!process.env.DATABASE_URL) {
+        throw new Error("DATABASE_URL is missing! Please configure DATABASE_URL in Vercel Settings -> Environment Variables.");
+      }
       setupAuth(app);
       const legacyTenantId = await ensureTenantSchema();
       await ensurePlatformAdminSeed();
