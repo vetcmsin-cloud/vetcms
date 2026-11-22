@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { app, httpServer, initApp } from "./app";
 import { log } from "./logger";
 

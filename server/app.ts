@@ -1,4 +1,3 @@
-import 'dotenv/config';
 if (!process.env.DATABASE_URL) {
   console.error("CRITICAL ERROR: DATABASE_URL is not defined in .env or environment!");
   if (!process.env.VERCEL) {

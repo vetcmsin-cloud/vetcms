@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "vite build && esbuild server/serverless.ts --bundle --platform=node --target=node20 --format=esm --outfile=api/index.js --external:pg-native --external:bufferutil --external:utf-8-validate",
+  "buildCommand": "vite build && esbuild server/serverless.ts --bundle --platform=node --target=node20 --format=esm \"--banner:js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);\" --outfile=api/index.js --external:pg-native --external:bufferutil --external:utf-8-validate",
   "outputDirectory": "dist/public",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
