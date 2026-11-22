@@ -38,7 +38,7 @@ import {
   type Purchase, type InsertPurchase, purchases,
   type PurchaseItem, type InsertPurchaseItem, purchaseItems,
   type ExpenseCategory, type InsertExpenseCategory, expenseCategories,
-} from "@shared/schema";
+} from "../shared/schema";
 import { db } from "./db";
 import { eq, sql, lte, desc, and, gte, ilike } from "drizzle-orm";
 

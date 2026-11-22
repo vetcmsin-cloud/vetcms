@@ -1,10 +1,10 @@
 import express from "express";
 import { storage } from "../storage";
 import { db } from "../db";
-import { inventoryItems } from "@shared/schema";
+import { inventoryItems } from "../../shared/schema";
 import { sql as sqlTag } from "drizzle-orm";
 import { requireAuth, requirePermission } from "../auth";
-import { insertInventoryItemSchema } from "@shared/schema";
+import { insertInventoryItemSchema } from "../../shared/schema";
 import * as XLSX from "xlsx";
 import multer from "multer";
 

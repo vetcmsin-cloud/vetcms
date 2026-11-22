@@ -1,10 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import * as schema from "@shared/schema";
+import * as schema from "../shared/schema";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Request, Response, NextFunction } from "express";
 import { eq, sql } from "drizzle-orm";
-import { tenants, users } from "@shared/schema";
+import { tenants, users } from "../shared/schema";
 
 const isServerless = !!process.env.VERCEL;
 const needsSsl = process.env.DATABASE_URL?.includes("supabase") ||

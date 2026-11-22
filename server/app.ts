@@ -92,12 +92,23 @@ export async function initApp(): Promise<express.Express> {
         throw new Error("DATABASE_URL is missing! Please configure DATABASE_URL in Vercel Settings -> Environment Variables.");
       }
       setupAuth(app);
-      const legacyTenantId = await ensureTenantSchema();
-      await ensurePlatformAdminSeed();
-      if (legacyTenantId > 0) await runWithTenant(legacyTenantId, () => seedDatabase());
+      try {
+        console.log("[App Init] Checking tenant schema and platform admin...");
+        const legacyTenantId = await ensureTenantSchema();
+        await ensurePlatformAdminSeed();
+        if (legacyTenantId > 0) await runWithTenant(legacyTenantId, () => seedDatabase());
+        console.log("[App Init] Tenant schema verified.");
+      } catch (dbInitErr) {
+        console.warn("[App Init] DB schema verification warning:", dbInitErr);
+      }
       console.log("Database initialized, registering routes...");
       await registerRoutes(httpServer, app);
       console.log("Routes registered.");
+
+      // 404 catch-all for unmatched API routes
+      app.use("/api", (_req: Request, res: Response) => {
+        res.status(404).json({ message: "API route not found" });
+      });
 
       app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
         const status = err.status || err.statusCode || 500;

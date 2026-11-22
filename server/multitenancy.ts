@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db, runWithTenant } from "./db";
-import { platformAdmins, users } from "@shared/schema";
+import { platformAdmins, users } from "../shared/schema";
 
 async function migratePlatformAdmins(): Promise<void> {
   const result: any = await db.execute(sql`SELECT version FROM tenant_migrations WHERE version = 'platform-admin-v1'`);

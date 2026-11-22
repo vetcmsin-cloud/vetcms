@@ -18,11 +18,11 @@ import {
   insertTaxCategorySchema,
   insertExpenseCategorySchema,
   tenants, platformAdmins, platformClinicPayments, ALL_PERMISSIONS, users, roles,
-} from "@shared/schema";
+} from "../shared/schema";
 import { hashPassword, comparePassword, requireAuth, requireAdmin, requireRole, requirePermission, invalidatePermissionCache, getCachedUserWithRole } from "./auth";
 import { db, getCurrentTenantId, getTenantAccessError, runWithTenant, tenantRequestContext } from "./db";
 import { sql as sqlTag, eq, and, gte, desc, inArray, ilike, or } from "drizzle-orm";
-import { petDocuments, invoices, appointments, pets, owners, invoiceItems, estimateItems, purchaseOrderItems, purchaseItems, publicReportShares } from "@shared/schema";
+import { petDocuments, invoices, appointments, pets, owners, invoiceItems, estimateItems, purchaseOrderItems, purchaseItems, publicReportShares } from "../shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";

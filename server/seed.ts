@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { users, platformAdmins, roles, feeStructures, labTestCategories, labTests, labRefRanges, species, bloodSmearPathogens, taxCategories } from "@shared/schema";
-import { defaultPathogens } from "@shared/seed_pathogens";
+import { users, platformAdmins, roles, feeStructures, labTestCategories, labTests, labRefRanges, species, bloodSmearPathogens, taxCategories } from "../shared/schema";
+import { defaultPathogens } from "../shared/seed_pathogens";
 import { eq, and, not, inArray, sql } from "drizzle-orm";
 import { log } from "./logger";
 import { hashPassword } from "./auth";
@@ -260,7 +260,7 @@ export async function seedDatabase(options: { seedUsers?: boolean } = {}) {
     });
   }
 
-  const { LAB_REPORT_CATEGORIES } = await import("@shared/schema");
+  const { LAB_REPORT_CATEGORIES } = await import("../shared/schema");
 
   // Seed default species
   const defaultSpecies = ["Canine", "Feline", "Bovine", "Equine", "Avian"];
